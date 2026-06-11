@@ -149,6 +149,25 @@ def test_claude_tasks_flags_live_gaps_and_missing_odds():
     assert _claude_tasks(prov, cfg, mode="mock", has_odds=True) == []
 
 
+def test_base_xg_source_is_yaml_by_default():
+    # Default-stability contract: the MLE estimator is gated off, so base xG comes
+    # from the YAML path and the default numeric output is unchanged.
+    result = _run(synth_config(home_team="A", away_team="B", home_xg=1.5, away_xg=1.2))
+    assert result["base_xg_source"] == "yaml"
+
+
+def test_mle_xg_enabled_does_not_crash():
+    from config.settings import settings as S
+    object.__setattr__(S, "use_mle_xg", True)
+    try:
+        result = _run(synth_config(home_team="Brazil", away_team="Serbia"))
+        # fits on the mock history or falls back to YAML — never raises.
+        assert result["base_xg_source"] in ("mle", "yaml")
+        assert 0.3 <= result["prediction"].home_xg <= 4.0
+    finally:
+        object.__setattr__(S, "use_mle_xg", False)
+
+
 def test_report_renders_cowork_assignment_when_odds_missing():
     cfg = synth_config(home_team="Spain", away_team="Japan")
     result = _run(cfg)                            # mock, no odds → odds task fires

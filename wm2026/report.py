@@ -83,7 +83,7 @@ def build_json(result: dict[str, Any]) -> dict[str, Any]:
     ]
 
     return {
-        "schema_version": "1.1",
+        "schema_version": "1.2",
         "match_id": match.get("id") or out.__dict__.get("match_id", "wm2026_match"),
         "model_version": MODEL_VERSION,
         "predicted_at": _iso(result.get("started_at")),
@@ -331,6 +331,33 @@ def _derived_section(dm: dict[str, Any], home: str, away: str) -> list[str]:
         L.append("|---|---|---|")
         for r in totals:
             L.append(f"| {r.get('line'):g} | {_pct(r.get('over'))} | {_pct(r.get('under'))} |")
+        L.append("")
+
+    wm = dm.get("winning_margin", {})
+    fg = dm.get("first_goal", {})
+    bands = dm.get("multi_goal_bands", {})
+    if wm:
+        L.append(f"- **Winning margin:** {home} +1 {_pct(wm.get('home_by_1'))} / +2 "
+                 f"{_pct(wm.get('home_by_2plus'))} · Draw {_pct(wm.get('draw'))} · "
+                 f"{away} +1 {_pct(wm.get('away_by_1'))} / +2 {_pct(wm.get('away_by_2plus'))}")
+    if fg:
+        L.append(f"- **First goal:** {home} {_pct(fg.get('home'))} · "
+                 f"{away} {_pct(fg.get('away'))} · none {_pct(fg.get('none'))}")
+    if bands:
+        L.append("- **Total-goals bands:** " + " · ".join(
+            f"{k} {_pct(v)}" for k, v in bands.items()))
+    if wm or fg or bands:
+        L.append("")
+
+    htft = dm.get("ht_ft", {})
+    if htft:
+        L.append("**HT/FT** (rows = halftime, cols = full-time · H/D/A):")
+        L.append(f"| HT＼FT | {home[:3]} | Draw | {away[:3]} |")
+        L.append("|---|---|---|---|")
+        labels = {"H": home[:3], "D": "Draw", "A": away[:3]}
+        for ht in "HDA":
+            cells = " | ".join(_pct(htft.get(f"{ht}/{ft}")) for ft in "HDA")
+            L.append(f"| {labels[ht]} | {cells} |")
         L.append("")
     return L
 

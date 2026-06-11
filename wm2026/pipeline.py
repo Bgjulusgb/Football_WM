@@ -32,7 +32,7 @@ from factors.base import FactorContext
 from factors.registry import get_active_factors
 from wm2026 import edge as edge_mod
 from wm2026 import markets as markets_mod
-from wm2026.context import apply_runtime_profile, build_context
+from wm2026.context import apply_overrides, apply_runtime_profile, build_context
 
 log = structlog.get_logger("wm2026.pipeline")
 
@@ -196,8 +196,8 @@ def _validate(
     if n_avail < 5:
         warnings.append(f"only {n_avail} factors available (low coverage)")
     modes = {p.get("mode") for p in provenance.values() if isinstance(p, dict)}
-    live_or_cache = {"live", "cache"} & modes
-    if not live_or_cache:
+    non_mock = {"live", "cache", "research"} & modes
+    if not non_mock:
         warnings.append("all data sources are mock — predictions are illustrative, not live")
     if ensemble.confidence < 0.5:
         warnings.append(
@@ -286,6 +286,7 @@ async def run_prediction(
     odds_dc: list[float] | None = None,
     odds_ah: tuple[float, float | None, float | None] | None = None,
     calibrate: str = "auto",
+    overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run all phases for one match config and return the raw ``result`` dict.
 
@@ -321,14 +322,31 @@ async def run_prediction(
     # Phase 1 — data collection.
     provenance = await _populate(ctx)
 
+    # Phase 1.5 — inject Claude-researched overrides over the connectors' fallbacks
+    # (Cowork v2). Re-read provenance so the `research` stamps reach the report.
+    overrides_applied = apply_overrides(ctx, overrides)
+    if overrides_applied:
+        provenance = dict(ctx.provenance)
+
     # Phase 2/3 — factor decomposition (+ injected sentiment).
     signals = await _signals(ctx)
 
     # Phase 4 — goal-model stack + bootstrap CIs.
     boot = settings.bootstrap_n if bootstrap_n is None else int(bootstrap_n)
     base_home_xg, base_away_xg = _base_xg(cfg)
+    # Optional Dixon-Coles MLE base xG (gated off by default → output unchanged).
+    base_xg_source = "yaml"
+    if getattr(settings, "use_mle_xg", False):
+        try:
+            from analysis.xg_estimator import estimate_base_xg
+            mle, diag = estimate_base_xg(ctx, ctx.home_code, ctx.away_code, settings=settings)
+            base_xg_source = diag.get("source", "yaml")
+            if mle is not None:
+                base_home_xg, base_away_xg = mle
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning("mle_xg_failed", error=str(exc))
     predictor = MatchPredictor(
-        rho=0.1,
+        rho=getattr(settings, "dixon_coles_rho", 0.1),
         goal_model=settings.goal_model,
         negbin_size=settings.negbin_size,
         combine=settings.goal_model_combine,
@@ -359,6 +377,8 @@ async def run_prediction(
         derived_markets = markets_mod.derive_all(
             matrix,
             p1x2=(out.home_win_prob, out.draw_prob, out.away_win_prob),
+            lam_home=out.home_xg, lam_away=out.away_xg,
+            models=predictor.models, ht_share=settings.ht_lambda_share,
         )
     except Exception:  # pragma: no cover - defensive
         score_matrix = []
@@ -417,6 +437,7 @@ async def run_prediction(
         "mode": mode,
         "base_home_xg": base_home_xg,
         "base_away_xg": base_away_xg,
+        "base_xg_source": base_xg_source,
         "lambda_home_ci": _lambda_ci(out.home_xg, settings.bootstrap_xg_sigma),
         "lambda_away_ci": _lambda_ci(out.away_xg, settings.bootstrap_xg_sigma),
         "prediction": out,
@@ -430,6 +451,7 @@ async def run_prediction(
         "best_value": best_value,
         "warnings": warnings,
         "claude_tasks": claude_tasks,
+        "overrides_applied": overrides_applied,
         "bootstrap_n": boot,
     }
 

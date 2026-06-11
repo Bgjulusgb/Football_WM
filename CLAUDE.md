@@ -80,11 +80,14 @@ in `prompts/WM2026_MASTER_PROMPT.md` (Phase 8).
 | Add a derived market | `wm2026/markets.py` (+ `tests/test_markets.py`) |
 | Edge / Kelly / staking | `wm2026/edge.py` (+ `tests/test_edge_conservative.py`) |
 | Goal models / blend / bootstrap | `models_ml/poisson_goals.py` |
+| MLE attack/defence λ-estimator | `analysis/xg_estimator.py` (gated by `settings.use_mle_xg`) |
+| Tournament Monte-Carlo | `wm2026/tournament.py` (+ `wm2026 tournament` CLI) |
 | Accuracy metrics (Brier/LogLoss/RPS) | `analysis/backtesting.py` |
 | Calibration (isotonic/Platt/market) | `analysis/calibration.py` (+ `scripts/fit_calibration_offline.py`) |
 | A new factor | `factors/<name>_factor.py` + `factors/registry.py` + a weight in `config/settings.py` |
-| CLI flags | `wm2026/cli.py` |
-| Report JSON/Markdown | `wm2026/report.py` |
+| CLI flags / `research` subcommand | `wm2026/cli.py` |
+| Cowork overrides injection | `wm2026/context.py` (`apply_overrides`, `overrides_template`) |
+| Report JSON/Markdown / HTML | `wm2026/report.py` · `wm2026/report_html.py` |
 | Roadmap / next math | `verbesserungsplan.md` |
 
 ## Don't

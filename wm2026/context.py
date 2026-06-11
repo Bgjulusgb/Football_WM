@@ -129,6 +129,97 @@ def _implied_from_odds(odds: Any) -> tuple[float, float, float] | None:
     return (fair[0], fair[1], fair[2])
 
 
+def apply_overrides(ctx: FactorContext, overrides: dict[str, Any] | None) -> list[str]:
+    """Inject Claude-researched values into the context (Cowork v2).
+
+    Applied **after** Phase-1 data collection so researched data overrides the
+    connectors' mock/error fallbacks. Writes the λ-driving fields into the
+    config (so ``_base_xg`` and the MLE estimator see them) and the typed slices
+    the factors read, then stamps provenance ``{"mode": "research"}`` so the
+    report shows a `research` badge and the "all sources mock" warning clears.
+
+    Schema (each key optional)::
+
+        {"xg": {"home": {"avg_xg_season": _, "avg_xg_conceded": _}, "away": {…}},
+         "elo": {"home": _, "away": _},
+         "weather": {"temp_c": _, "wind_kmh": _, "precipitation_mm": _, "humidity_pct": _},
+         "sentiment": {"sample_size": _, "home_sentiment": _, …}}
+
+    Returns the list of applied keys (for the report + logging).
+    """
+    if not overrides:
+        return []
+    applied: list[str] = []
+    teams = ctx.config.setdefault("teams", {}) if isinstance(ctx.config, dict) else {}
+
+    def _stamp(key: str) -> None:
+        ctx.provenance[key] = {"source": "claude-research", "mode": "research", "fetched_at": None}
+
+    xg = overrides.get("xg")
+    if isinstance(xg, dict):
+        for side in ("home", "away"):
+            spec = xg.get(side)
+            if isinstance(spec, dict):
+                team = teams.setdefault(side, {})
+                if "avg_xg_season" in spec:
+                    team["avg_xg_season"] = float(spec["avg_xg_season"])
+                if "avg_xg_conceded" in spec:
+                    team["avg_xg_conceded"] = float(spec["avg_xg_conceded"])
+                _stamp(f"xg_{side}")
+                applied.append(f"xg.{side}")
+
+    elo = overrides.get("elo")
+    if isinstance(elo, dict):
+        for side in ("home", "away"):
+            if elo.get(side) is not None:
+                teams.setdefault(side, {})["elo_rating"] = float(elo[side])
+                applied.append(f"elo.{side}")
+
+    weather = overrides.get("weather")
+    if isinstance(weather, dict):
+        try:
+            from data_sources.schemas import WeatherInfo
+            fields = {k: weather[k] for k in
+                      ("temp_c", "humidity_pct", "wind_kmh", "precipitation_mm")
+                      if k in weather and weather[k] is not None}
+            ctx.weather = WeatherInfo(source="claude-research", **fields)
+            _stamp("weather")
+            applied.append("weather")
+        except Exception:  # pragma: no cover - schema/optional-dep guard
+            pass
+
+    sentiment = overrides.get("sentiment")
+    if isinstance(sentiment, dict):
+        ctx.sentiment_payload = sentiment
+        applied.append("sentiment")
+
+    return applied
+
+
+def overrides_template(cfg: dict[str, Any]) -> dict[str, Any]:
+    """A blank ``--overrides-json`` scaffold for Claude to fill (research → re-run)."""
+    teams = cfg.get("teams", {})
+    home = (teams.get("home", {}) or {}).get("name", "home")
+    away = (teams.get("away", {}) or {}).get("name", "away")
+    return {
+        "_instructions": (
+            "Recherchiere die null-Werte per Web Search, trage value + _source ein, "
+            "dann: wm2026 predict <match> --overrides-json DIESE_DATEI.json "
+            "(Quoten zusätzlich via --odds/--odds-ou/--odds-btts)."
+        ),
+        "_fixture": f"{home} vs {away}",
+        "xg": {
+            "home": {"avg_xg_season": None, "avg_xg_conceded": None, "_source": None},
+            "away": {"avg_xg_season": None, "avg_xg_conceded": None, "_source": None},
+        },
+        "elo": {"home": None, "away": None, "_source": None},
+        "weather": {"temp_c": None, "wind_kmh": None, "precipitation_mm": None,
+                    "humidity_pct": None, "_source": None},
+        "sentiment": {"sample_size": None, "home_sentiment": None,
+                      "away_sentiment": None, "_source": None},
+    }
+
+
 def synth_config(
     *,
     home_team: str,
@@ -184,5 +275,7 @@ __all__ = [
     "apply_runtime_profile",
     "load_match_config",
     "build_context",
+    "apply_overrides",
+    "overrides_template",
     "synth_config",
 ]

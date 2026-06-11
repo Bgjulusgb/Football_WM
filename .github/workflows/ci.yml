@@ -35,10 +35,17 @@ jobs:
           pytest -q \
             tests/test_wm2026_pipeline.py \
             tests/test_markets.py \
+            tests/test_markets_extended.py \
             tests/test_edge_conservative.py \
             tests/test_backtesting_rps.py \
             tests/test_bivariate_poisson.py \
-            tests/test_calibration_offline.py
+            tests/test_calibration_offline.py \
+            tests/test_overrides.py \
+            tests/test_report_html.py \
+            tests/test_xg_estimator.py \
+            tests/test_tournament.py \
+            tests/test_model_tuning.py \
+            tests/test_examples_guard.py
 
       - name: Debug harness — every function on mock data
         run: python debug.py -q

@@ -68,8 +68,12 @@ def _add_predict_args(p: argparse.ArgumentParser) -> None:
                      help="Phase 5: auto = fitted artifact if present else raw; "
                           "market = anchor 1X2 to the vig-free odds; none = off")
     run.add_argument("--sentiment-json", help="path to a sentiment_payload JSON to inject")
+    run.add_argument("--overrides-json", help="path to a Claude-researched overrides JSON "
+                                              "(xg/elo/weather/sentiment) — see `wm2026 research`")
     run.add_argument("--out", "-o", help="output directory for JSON/MD/PNG")
-    run.add_argument("--json-only", action="store_true", help="print JSON instead of Markdown")
+    run.add_argument("--format", choices=["markdown", "json", "html"], default="markdown",
+                     help="output format (default markdown); html = self-contained report")
+    run.add_argument("--json-only", action="store_true", help="alias for --format json")
     run.add_argument("--charts", action="store_true", help="also render PNG charts (needs matplotlib)")
     run.add_argument("--verbose", "-v", action="store_true", help="show debug logs")
 
@@ -132,6 +136,9 @@ def _cmd_predict(args: argparse.Namespace) -> int:
     sentiment = None
     if args.sentiment_json:
         sentiment = json.loads(Path(args.sentiment_json).read_text(encoding="utf-8"))
+    overrides = None
+    if args.overrides_json:
+        overrides = json.loads(Path(args.overrides_json).read_text(encoding="utf-8"))
 
     result = asyncio.run(run_prediction(
         cfg,
@@ -144,10 +151,17 @@ def _cmd_predict(args: argparse.Namespace) -> int:
         odds_dc=parse_odds(args.odds_dc),
         odds_ah=_parse_ah(args.odds_ah),
         calibrate=args.calibrate,
+        overrides=overrides,
     ))
     report = build_report(result)
+    fmt = "json" if args.json_only else args.format
 
-    if args.json_only:
+    html_str: str | None = None
+    if fmt == "html":
+        from wm2026.report_html import build_html
+        html_str = build_html(result, report["json"])
+        print(html_str)
+    elif fmt == "json":
         print(json.dumps(report["json"], indent=2, ensure_ascii=False))
     else:
         print(report["markdown"])
@@ -160,6 +174,12 @@ def _cmd_predict(args: argparse.Namespace) -> int:
             json.dumps(report["json"], indent=2, ensure_ascii=False), encoding="utf-8")
         (out_dir / f"{mid}.md").write_text(report["markdown"], encoding="utf-8")
         written = [f"{mid}.json", f"{mid}.md"]
+        if fmt == "html":
+            if html_str is None:
+                from wm2026.report_html import build_html
+                html_str = build_html(result, report["json"])
+            (out_dir / f"{mid}.html").write_text(html_str, encoding="utf-8")
+            written.append(f"{mid}.html")
         if args.charts:
             try:
                 from wm2026.viz import render_charts
@@ -167,6 +187,115 @@ def _cmd_predict(args: argparse.Namespace) -> int:
             except Exception as exc:
                 print(f"[charts skipped: {exc}]", file=sys.stderr)
         print(f"\n→ wrote {', '.join(written)} to {out_dir}/", file=sys.stderr)
+    return 0
+
+
+def _cmd_tournament(args: argparse.Namespace) -> int:
+    """Monte-Carlo the whole tournament (group → knockout) → per-team title /
+    final / knockout probabilities, from the YAML group configs."""
+    _quiet_logs(args.verbose)
+    import yaml
+    from models_ml.poisson_goals import build_all_goal_models
+    from wm2026.tournament import simulate_tournament
+
+    root = Path(args.groups or "config/matches")
+    groups: dict[str, list[str]] = {}
+    team_data: dict[str, tuple[float, float, str]] = {}
+    for gdir in sorted(root.glob("group_*")):
+        gname = gdir.name.replace("group_", "").upper()
+        codes: list[str] = []
+        for yf in sorted(gdir.glob("*.yaml")):
+            if yf.name.startswith("_"):
+                continue
+            cfg = yaml.safe_load(yf.read_text(encoding="utf-8")) or {}
+            for side in ("home", "away"):
+                t = (cfg.get("teams", {}) or {}).get(side, {}) or {}
+                code = str(t.get("code") or t.get("fifa_code") or t.get("name", "")).upper()
+                if not code:
+                    continue
+                team_data.setdefault(code, (
+                    float(t.get("avg_xg_season", 1.3) or 1.3),
+                    float(t.get("avg_xg_conceded", 1.3) or 1.3),
+                    t.get("name", code)))
+                if code not in codes:
+                    codes.append(code)
+        if len(codes) >= 2:
+            groups[gname] = codes[:4]
+    if not groups:
+        print(f"no group_* configs under {root}/", file=sys.stderr)
+        return 1
+
+    def lam(a: str, b: str):
+        aa, ad, _ = team_data.get(a, (1.3, 1.3, a))
+        ba, bd, _ = team_data.get(b, (1.3, 1.3, b))
+        return ((aa + bd) / 2.0, (ba + ad) / 2.0)     # neutral venue (no home edge)
+
+    res = simulate_tournament(groups, lam_provider=lam, models=build_all_goal_models(),
+                              n_sims=args.sims, seed=args.seed)
+    names = {c: team_data.get(c, (0, 0, c))[2] for c in res.title_prob}
+
+    if args.format == "json":
+        out = {"n_sims": res.n_sims, "groups": len(groups),
+               "title_prob": res.title_prob, "final_prob": res.final_prob,
+               "advance_prob": res.advance_prob}
+        text = json.dumps(out, indent=2, ensure_ascii=False)
+    else:
+        L = [f"# 🏆 WM 2026 — Turnier-Monte-Carlo",
+             f"*{res.n_sims} Simulationen · {len(groups)} Gruppen · neutral (kein Heimvorteil)*", "",
+             "| # | Team | 🏆 Titel | Finale | Achtelfinale+ |", "|---|---|---|---|---|"]
+        for i, (c, p) in enumerate(res.ranked("title_prob")[:24], 1):
+            L.append(f"| {i} | {names.get(c, c)} | {100*p:.1f}% | "
+                     f"{100*res.final_prob[c]:.1f}% | {100*res.advance_prob[c]:.1f}% |")
+        text = "\n".join(L)
+    print(text)
+    if args.out:
+        out_dir = Path(args.out); out_dir.mkdir(parents=True, exist_ok=True)
+        ext = "json" if args.format == "json" else "md"
+        (out_dir / f"tournament.{ext}").write_text(text, encoding="utf-8")
+        print(f"\n→ wrote tournament.{ext} to {out_dir}/", file=sys.stderr)
+    return 0
+
+
+def _cmd_research(args: argparse.Namespace) -> int:
+    """Emit Claude's Cowork assignment (live-data gaps) + an overrides-JSON
+    template to fill, then re-run ``predict --overrides-json``."""
+    _quiet_logs(args.verbose)
+    from wm2026.context import overrides_template
+    from wm2026.edge import parse_odds
+    from wm2026.pipeline import run_prediction
+
+    cfg = _build_cfg(args)
+    result = asyncio.run(run_prediction(
+        cfg, mode=args.mode, bootstrap_n=0, odds_1x2=parse_odds(args.odds),
+    ))
+    teams = cfg.get("teams", {})
+    home = (teams.get("home", {}) or {}).get("name", "Home")
+    away = (teams.get("away", {}) or {}).get("name", "Away")
+    tasks = result.get("claude_tasks", [])
+
+    lines = [f"# 🤝 Cowork-Auftrag — {home} vs {away}  (mode: {args.mode})", ""]
+    if tasks:
+        for i, t in enumerate(tasks, 1):
+            lines.append(f"{i}. **[{t['priority']}]** {t['task']}")
+            lines.append(f"   → einspeisen via: `{t['fill_via']}`")
+    else:
+        lines.append("_Keine offenen Lücken — alle Quellen live._")
+    print("\n".join(lines))
+
+    template = overrides_template(cfg)
+    payload = json.dumps(template, indent=2, ensure_ascii=False)
+    if args.out:
+        out_dir = Path(args.out)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        mid = cfg.get("match", {}).get("id", "wm2026_match")
+        path = out_dir / f"{mid}.overrides.json"
+        path.write_text(payload, encoding="utf-8")
+        print(f"\n→ Overrides-Template: {path}", file=sys.stderr)
+        print(f"  Ausfüllen, dann: wm2026 predict ... --overrides-json {path}", file=sys.stderr)
+    else:
+        print("\n## Overrides-Template (ausfüllen → --overrides-json)\n```json")
+        print(payload)
+        print("```")
     return 0
 
 
@@ -192,6 +321,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_predict = sub.add_parser("predict", help="run the full prediction pipeline")
     _add_predict_args(p_predict)
     p_predict.set_defaults(func=_cmd_predict)
+
+    p_research = sub.add_parser(
+        "research", help="emit the Cowork research assignment + an overrides-JSON template")
+    _add_predict_args(p_research)
+    p_research.set_defaults(func=_cmd_research)
+
+    p_tour = sub.add_parser("tournament", help="Monte-Carlo the whole tournament (group → knockout)")
+    p_tour.add_argument("--sims", type=int, default=10000, help="number of simulations (default 10000)")
+    p_tour.add_argument("--seed", type=int, default=0, help="RNG seed (deterministic)")
+    p_tour.add_argument("--groups", help="config root with group_* dirs (default config/matches)")
+    p_tour.add_argument("--mode", choices=["mock", "live"], default="mock", help="(reads YAML; mock/live parity)")
+    p_tour.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    p_tour.add_argument("--out", "-o", help="also write tournament.md/json here")
+    p_tour.add_argument("--verbose", "-v", action="store_true")
+    p_tour.set_defaults(func=_cmd_tournament)
 
     p_list = sub.add_parser("list", help="list available match configs")
     p_list.add_argument("--dir", help="match config root (default: config/matches)")

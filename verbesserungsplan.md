@@ -28,14 +28,15 @@ Module ausgelegt — jede Position nennt Formel, Begründung und Ziel-Datei.
 
 ## 🔜 Phase 2 — Modell-Tiefe (größter erwarteter Brier/RPS-Gewinn)
 
-### 2.1 Dixon-Coles-Zeitdecay ξ auf die Tor-Raten-Schätzung
-**Problem:** `avg_xg_season` ist ungewichtet; ein 0:5 von vor 18 Monaten zählt
-wie letzte Woche. **Formel:** Gewicht je historischem Spiel
-`φ(t) = exp(−ξ·Δt_days)`, Halbwertszeit `ln2/ξ` (Lit.: ξ≈0.0065/Tag ⇒ ~9 Mon.).
-Dann gewichtete Attack/Defence-Raten statt Saison-Mittel.
-**Wo:** neues `models_ml/time_decay.py` (pure, `dc_weights(dates, ref, xi)`),
-eingehängt in `factors/_history.py` (ersetzt `0.9^index`) hinter einem
-`settings.dc_time_decay_xi`-Flag (Default = altes Verhalten).
+### 2.1 Dixon-Coles-MLE-λ-Schätzer mit Zeitdecay ξ — ✅ erledigt
+**Status:** `analysis/xg_estimator.py` schätzt Attack/Defence + Heimvorteil per
+gewichteter **MLE** (`scipy.optimize`) aus der Historie, Gewicht
+`w = exp(−ξ·Δt_days)·tier` (ξ=0.0065 ≈ ~2-Jahre-Halbwertszeit, Dixon-Coles 1997).
+Identifizierbar via Sum-to-Zero (Σattack=Σdefence=0), ρ fix. Ersetzt das naive
+`_base_xg` **nur** wenn genug identifizierbare Historie da ist, sonst harter
+YAML-Fallback. Gated: `settings.use_mle_xg=False` (Default → Output unverändert).
+Getestet (`tests/test_xg_estimator.py`): Recovery aus Synthetik, Sum-to-Zero,
+Decay-Monotonie, Fallback, Default-Stabilität.
 
 ### 2.2 Echtes bivariates Poisson als 4. Modell — ✅ Klasse implementiert (opt-in)
 **Status:** `BivariatePoisson` (Karlis-Ntzoufras, `λ₃`-Kovarianz) ist in
@@ -84,15 +85,18 @@ symmetrisch in `home/away`. **Formel:** `λ_mult = exp(Σ wᵢ·ln sᵢ)`. **Wo:
 
 ## 🌍 Phase 3 — Reichweite & Cowork
 
-- **Turnier-Monte-Carlo** (Gruppen→KO): `scripts/tournament_mc.py` simuliert die
-  104 Spiele über die Pipeline-λ → Gruppen-/Titel-Wahrscheinlichkeiten je Team.
-- **HT/FT & First-Goal:** Halbzeit-λ = `λ_full · 0.45` (empirischer Split),
-  eigene Score-Matrix → HT/FT-9-Felder; in `wm2026/markets.py` ergänzen.
-- **Karten/Ecken:** eigenes (Negbin-)Zählmodell mit Referee-/Derby-Faktor —
-  neuer Faktor + Markt; braucht eine Datenquelle (sofascore-Stats).
-- **Per-Quelle-Live-Toggle:** `--live openfootball,weather` statt globalem
-  `--mode`, damit Cowork einzelne Quellen scharf schalten kann (`wm2026/cli.py`
-  + `apply_runtime_profile`).
+- **Turnier-Monte-Carlo** — ✅ erledigt: `wm2026/tournament.py` + `wm2026 tournament`
+  sampelt Gruppenphase → KO über die blend-konsistente Score-Matrix (gebackene
+  CDFs + vektorisierte pmf) → **10k Sims des 48-Team-Felds in ~1,5 s**, Titel-/
+  Finale-/Achtelfinal-% je Team. WC-2026-Format (12 Gruppen → 8 beste Dritte → 32).
+- **HT/FT & First-Goal & Winning-Margin & Exact-Totals** — ✅ erledigt in
+  `wm2026/markets.py` (Phase-1-Commit), inkl. Halbzeit-λ-Split `ht_lambda_share=0.45`.
+- **Cowork-Overrides** — ✅ erledigt: `--overrides-json` + `wm2026 research`
+  (`wm2026/context.py:apply_overrides`).
+- **HTML-Report** — ✅ erledigt: `wm2026/report_html.py` + `--format html`.
+- **Offen — Karten/Ecken:** eigenes (Negbin-)Zählmodell mit Referee-/Derby-Faktor
+  (braucht sofascore-Stats). **Offen — Per-Quelle-Live-Toggle:**
+  `--live openfootball,weather` statt globalem `--mode`.
 
 ---
 

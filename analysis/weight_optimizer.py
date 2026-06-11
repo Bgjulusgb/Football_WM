@@ -116,6 +116,93 @@ def tune_weights(
     )
 
 
+# ── Phase 4 — model-parameter tuning to RPS (blend weights, ρ, ξ) ─────────────
+_MODEL_PARAM_RANGES: dict[str, tuple[float, float]] = {
+    "blend_poisson":      (0.20, 0.60),
+    "blend_negbin":       (0.10, 0.50),
+    "blend_glm_poisson":  (0.10, 0.50),
+    "dixon_coles_rho":    (0.00, 0.18),
+    "mle_time_decay_xi":  (0.001, 0.02),
+}
+_MODEL_ARTIFACT_PATH = settings.base_dir / "models_ml" / "artifacts" / "tuned_model_params.yaml"
+
+
+def tune_model_params(
+    objective: Callable[[dict[str, float]], float],
+    *,
+    n_trials: int = 100,
+    keys: Sequence[str] | None = None,
+    study_name: str = "model_params",
+) -> TuningResult:
+    """Optuna study over the goal-model params (blend weights / ρ / ξ), minimising
+    ``objective`` (typically mean RPS over a backtest). Writes the best params to
+    ``models_ml/artifacts/tuned_model_params.yaml`` for inspection / hot-load.
+    Optional dep: raises if optuna is missing."""
+    try:
+        import optuna
+        import yaml
+    except Exception as exc:
+        raise RuntimeError("tune_model_params requires optuna + pyyaml") from exc
+
+    space = list(keys or _MODEL_PARAM_RANGES.keys())
+
+    def _objective(trial: "optuna.trial.Trial") -> float:
+        params = {k: trial.suggest_float(k, *_MODEL_PARAM_RANGES[k])
+                  for k in space if k in _MODEL_PARAM_RANGES}
+        return objective(params)
+
+    sampler = optuna.samplers.TPESampler(seed=42, multivariate=True, group=True)
+    study = optuna.create_study(direction="minimize", sampler=sampler, study_name=study_name)
+    study.optimize(_objective, n_trials=n_trials, show_progress_bar=False)
+
+    _MODEL_ARTIFACT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _MODEL_ARTIFACT_PATH.write_text(yaml.safe_dump(study.best_params, sort_keys=True), encoding="utf-8")
+    log.info("model_params_tuned", best_value=study.best_value, n_trials=n_trials)
+    return TuningResult(float(study.best_value), dict(study.best_params), n_trials, _MODEL_ARTIFACT_PATH)
+
+
+def normalise_blend(params: dict[str, float]) -> dict[str, float]:
+    """Renormalise the three sampled blend weights to sum 1 (for blend_score_matrix)."""
+    keys = ("blend_poisson", "blend_negbin", "blend_glm_poisson")
+    present = {k: max(0.0, params[k]) for k in keys if k in params}
+    total = sum(present.values()) or 1.0
+    return {("poisson" if k == "blend_poisson" else
+             "negbin" if k == "blend_negbin" else "glm_poisson"): v / total
+            for k, v in present.items()}
+
+
+def rps_objective_from_results(rows, *, predict_fn: Callable[[dict, object], tuple]) -> Callable[[dict], float]:
+    """Build an RPS objective over historical ``rows``. ``predict_fn(params, row)``
+    returns a 1X2 triple (home, draw, away) under the candidate params; the
+    objective returns the mean Ranked Probability Score (lower = better)."""
+    from analysis.backtesting import _outcome_vec, _rps
+
+    def obj(params: dict[str, float]) -> float:
+        total = 0.0
+        n = 0
+        for r in rows:
+            if getattr(r, "actual_home_score", None) is None or getattr(r, "actual_away_score", None) is None:
+                continue
+            p = predict_fn(params, r)
+            y = _outcome_vec(int(r.actual_home_score), int(r.actual_away_score))
+            total += _rps(tuple(p), y)
+            n += 1
+        return total / n if n else 1.0
+
+    return obj
+
+
+def synthetic_rps_objective(targets: list[float]) -> Callable[[dict[str, float]], float]:
+    """Deterministic quadratic bowl with its minimum at the ``_MODEL_PARAM_RANGES``
+    centres — exercises ``tune_model_params`` in tests without a match corpus."""
+    centres = {k: (lo + hi) / 2 for k, (lo, hi) in _MODEL_PARAM_RANGES.items()}
+
+    def obj(params: dict[str, float]) -> float:
+        return sum((v - centres[k]) ** 2 for k, v in params.items()) + sum(targets) * 1e-6
+
+    return obj
+
+
 def synthetic_brier_objective(targets: list[float]) -> Callable[[dict[str, float]], float]:
     """Return an objective that maps each weight set to a deterministic Brier-
     like value — used by the unit tests so the optimizer can be exercised
@@ -134,4 +221,8 @@ def synthetic_brier_objective(targets: list[float]) -> Callable[[dict[str, float
     return obj
 
 
-__all__ = ["tune_weights", "TuningResult", "synthetic_brier_objective", "_PRIOR_RANGES"]
+__all__ = [
+    "tune_weights", "TuningResult", "synthetic_brier_objective", "_PRIOR_RANGES",
+    "tune_model_params", "rps_objective_from_results", "synthetic_rps_objective",
+    "normalise_blend", "_MODEL_PARAM_RANGES",
+]
