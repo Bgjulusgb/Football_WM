@@ -28,6 +28,9 @@ schickt sie dir verarbeitet zurück. **Forschung/Bildung — keine Wett-Empfehlu
 
 > **TL;DR:** Du brauchst Python 3.11+, einmal `pip install -r requirements.txt`,
 > **fertig**. Alles andere ist optional — der Workflow degradiert sauber.
+> **In Claude Code on the Web läuft der `.claude/hooks/session-start.sh`-Hook
+> automatisch und installiert dir Core + Charts + Sentiment + Stats** —
+> kein manuelles `pip install` nötig. Siehe [`SETUP_COWORK.md`](SETUP_COWORK.md).
 
 ### 1 · Pflicht (= das musst du wirklich)
 
@@ -37,6 +40,11 @@ cd football_wm
 pip install -r requirements.txt
 python debug.py          # Verify: ✅ jede Funktion auf Mock-Daten getestet
 ```
+
+> **Claude Code on the Web Bonus:** Wenn du in einer Web-Session arbeitest,
+> macht der **SessionStart-Hook** das automatisch — du musst nur das Repo
+> öffnen und kannst direkt mit "Predict Match X" loslegen. 9 Skills sind
+> vorinstalliert (siehe `.claude/skills/`).
 
 Das sind die **Core-Deps** (`numpy`, `scipy`, `httpx`, `PyYAML`, `pydantic`,
 `structlog`). Damit läuft die **komplette Pipeline**: alle 15+ Märkte, Edge-/
