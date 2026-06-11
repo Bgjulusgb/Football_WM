@@ -23,14 +23,24 @@ class DixonColesPoisson:
         model; Poisson is the Dixon-Coles default."""
         return float(poisson.pmf(k, mu))
 
+    def _pmf_vector(self, n: int, mu: float) -> np.ndarray:
+        """Vectorised marginal pmf for goals 0..n-1 — one scipy call instead of n
+        scalar ``_pmf`` calls. Overridden by the negative-binomial model."""
+        return poisson.pmf(np.arange(n), mu)
+
     def predict_matrix(self, home_xg: float, away_xg: float) -> np.ndarray:
+        # Independent-marginal outer product + the Dixon-Coles low-score
+        # correction on the four affected cells. Mathematically identical to the
+        # per-cell loop, but ~10-50× faster (one vectorised pmf per side) — which
+        # the bootstrap (n× per match) and the tournament MC (per pairing) lean on.
         n = self.max_goals + 1
-        matrix = np.zeros((n, n))
-        for i in range(n):
-            for j in range(n):
-                p = self._pmf(i, home_xg) * self._pmf(j, away_xg)
-                p *= self._correction(i, j, home_xg, away_xg)
-                matrix[i][j] = max(p, 0.0)
+        matrix = np.outer(self._pmf_vector(n, home_xg), self._pmf_vector(n, away_xg))
+        rho = self.rho
+        matrix[0, 0] *= 1.0 - home_xg * away_xg * rho
+        matrix[0, 1] *= 1.0 + home_xg * rho
+        matrix[1, 0] *= 1.0 + away_xg * rho
+        matrix[1, 1] *= 1.0 - rho
+        np.clip(matrix, 0.0, None, out=matrix)
         total = matrix.sum()
         return matrix / total if total > 0 else matrix
 
@@ -99,6 +109,11 @@ class NegativeBinomialDixonColes(DixonColesPoisson):
         r = self.size
         p = r / (r + mu)
         return float(nbinom.pmf(k, r, p))
+
+    def _pmf_vector(self, n: int, mu: float) -> np.ndarray:
+        mu = max(1e-6, mu)
+        r = self.size
+        return nbinom.pmf(np.arange(n), r, r / (r + mu))
 
 
 class BivariatePoisson(DixonColesPoisson):

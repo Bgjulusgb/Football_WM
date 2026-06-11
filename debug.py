@@ -220,10 +220,33 @@ def run_pipeline() -> None:
     check("build_html (self-contained)", lambda: f"{len(build_html(result, report['json']))} chars HTML")
 
 
+def run_advanced() -> None:
+    section("analysis.xg_estimator + wm2026.tournament")
+    from datetime import datetime, timezone
+    from analysis.xg_estimator import estimate_strengths, lambdas_for_fixture
+    now = datetime.now(timezone.utc)
+    games = [SimpleNamespace(home_code=h, away_code=a, home_score=hs, away_score=as_,
+                             kickoff_utc=now, competition_tier=1)
+             for h, a, hs, as_ in [("A", "B", 2, 0), ("C", "A", 1, 1), ("B", "C", 0, 2),
+                                   ("A", "C", 3, 1), ("B", "A", 0, 1), ("C", "B", 2, 2),
+                                   ("A", "B", 1, 0), ("C", "A", 0, 0)]]
+    s = estimate_strengths(games, ref_time=now, xi=0.0, rho0=0.0, min_matches=6)
+    check("estimate_strengths (sum-to-zero)",
+          lambda: round(sum(s.attack.values()), 6) if s else "None")
+    check("lambdas_for_fixture", lambda: tuple(round(x, 2) for x in lambdas_for_fixture(s, "A", "B")) if s else "None")
+    from models_ml.poisson_goals import build_all_goal_models
+    from wm2026.tournament import simulate_tournament
+    groups = {"A": ["A1", "A2", "A3", "A4"], "B": ["B1", "B2", "B3", "B4"]}
+    res = simulate_tournament(groups, lam_provider=lambda h, a: (1.4, 1.2),
+                              models=build_all_goal_models(), n_sims=100, seed=0, n_best_thirds=0)
+    check("simulate_tournament (Σtitle=1)", lambda: round(sum(res.title_prob.values()), 4))
+    check("simulate_tournament (Σadvance=4)", lambda: round(sum(res.advance_prob.values()), 4))
+
+
 def main() -> int:
     print("🔧 debug.py — mock-data smoke harness for the WM 2026 workflow\n")
     for runner in (run_markets, run_edge, run_backtesting, run_calibration,
-                   run_models, run_predictor, run_pipeline):
+                   run_models, run_predictor, run_pipeline, run_advanced):
         try:
             runner()
         except Exception as exc:                   # noqa: BLE001 - keep going

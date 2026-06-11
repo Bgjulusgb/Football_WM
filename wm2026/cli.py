@@ -190,6 +190,72 @@ def _cmd_predict(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_tournament(args: argparse.Namespace) -> int:
+    """Monte-Carlo the whole tournament (group → knockout) → per-team title /
+    final / knockout probabilities, from the YAML group configs."""
+    _quiet_logs(args.verbose)
+    import yaml
+    from models_ml.poisson_goals import build_all_goal_models
+    from wm2026.tournament import simulate_tournament
+
+    root = Path(args.groups or "config/matches")
+    groups: dict[str, list[str]] = {}
+    team_data: dict[str, tuple[float, float, str]] = {}
+    for gdir in sorted(root.glob("group_*")):
+        gname = gdir.name.replace("group_", "").upper()
+        codes: list[str] = []
+        for yf in sorted(gdir.glob("*.yaml")):
+            if yf.name.startswith("_"):
+                continue
+            cfg = yaml.safe_load(yf.read_text(encoding="utf-8")) or {}
+            for side in ("home", "away"):
+                t = (cfg.get("teams", {}) or {}).get(side, {}) or {}
+                code = str(t.get("code") or t.get("fifa_code") or t.get("name", "")).upper()
+                if not code:
+                    continue
+                team_data.setdefault(code, (
+                    float(t.get("avg_xg_season", 1.3) or 1.3),
+                    float(t.get("avg_xg_conceded", 1.3) or 1.3),
+                    t.get("name", code)))
+                if code not in codes:
+                    codes.append(code)
+        if len(codes) >= 2:
+            groups[gname] = codes[:4]
+    if not groups:
+        print(f"no group_* configs under {root}/", file=sys.stderr)
+        return 1
+
+    def lam(a: str, b: str):
+        aa, ad, _ = team_data.get(a, (1.3, 1.3, a))
+        ba, bd, _ = team_data.get(b, (1.3, 1.3, b))
+        return ((aa + bd) / 2.0, (ba + ad) / 2.0)     # neutral venue (no home edge)
+
+    res = simulate_tournament(groups, lam_provider=lam, models=build_all_goal_models(),
+                              n_sims=args.sims, seed=args.seed)
+    names = {c: team_data.get(c, (0, 0, c))[2] for c in res.title_prob}
+
+    if args.format == "json":
+        out = {"n_sims": res.n_sims, "groups": len(groups),
+               "title_prob": res.title_prob, "final_prob": res.final_prob,
+               "advance_prob": res.advance_prob}
+        text = json.dumps(out, indent=2, ensure_ascii=False)
+    else:
+        L = [f"# 🏆 WM 2026 — Turnier-Monte-Carlo",
+             f"*{res.n_sims} Simulationen · {len(groups)} Gruppen · neutral (kein Heimvorteil)*", "",
+             "| # | Team | 🏆 Titel | Finale | Achtelfinale+ |", "|---|---|---|---|---|"]
+        for i, (c, p) in enumerate(res.ranked("title_prob")[:24], 1):
+            L.append(f"| {i} | {names.get(c, c)} | {100*p:.1f}% | "
+                     f"{100*res.final_prob[c]:.1f}% | {100*res.advance_prob[c]:.1f}% |")
+        text = "\n".join(L)
+    print(text)
+    if args.out:
+        out_dir = Path(args.out); out_dir.mkdir(parents=True, exist_ok=True)
+        ext = "json" if args.format == "json" else "md"
+        (out_dir / f"tournament.{ext}").write_text(text, encoding="utf-8")
+        print(f"\n→ wrote tournament.{ext} to {out_dir}/", file=sys.stderr)
+    return 0
+
+
 def _cmd_research(args: argparse.Namespace) -> int:
     """Emit Claude's Cowork assignment (live-data gaps) + an overrides-JSON
     template to fill, then re-run ``predict --overrides-json``."""
@@ -260,6 +326,16 @@ def build_parser() -> argparse.ArgumentParser:
         "research", help="emit the Cowork research assignment + an overrides-JSON template")
     _add_predict_args(p_research)
     p_research.set_defaults(func=_cmd_research)
+
+    p_tour = sub.add_parser("tournament", help="Monte-Carlo the whole tournament (group → knockout)")
+    p_tour.add_argument("--sims", type=int, default=10000, help="number of simulations (default 10000)")
+    p_tour.add_argument("--seed", type=int, default=0, help="RNG seed (deterministic)")
+    p_tour.add_argument("--groups", help="config root with group_* dirs (default config/matches)")
+    p_tour.add_argument("--mode", choices=["mock", "live"], default="mock", help="(reads YAML; mock/live parity)")
+    p_tour.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    p_tour.add_argument("--out", "-o", help="also write tournament.md/json here")
+    p_tour.add_argument("--verbose", "-v", action="store_true")
+    p_tour.set_defaults(func=_cmd_tournament)
 
     p_list = sub.add_parser("list", help="list available match configs")
     p_list.add_argument("--dir", help="match config root (default: config/matches)")

@@ -334,6 +334,17 @@ async def run_prediction(
     # Phase 4 — goal-model stack + bootstrap CIs.
     boot = settings.bootstrap_n if bootstrap_n is None else int(bootstrap_n)
     base_home_xg, base_away_xg = _base_xg(cfg)
+    # Optional Dixon-Coles MLE base xG (gated off by default → output unchanged).
+    base_xg_source = "yaml"
+    if getattr(settings, "use_mle_xg", False):
+        try:
+            from analysis.xg_estimator import estimate_base_xg
+            mle, diag = estimate_base_xg(ctx, ctx.home_code, ctx.away_code, settings=settings)
+            base_xg_source = diag.get("source", "yaml")
+            if mle is not None:
+                base_home_xg, base_away_xg = mle
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning("mle_xg_failed", error=str(exc))
     predictor = MatchPredictor(
         rho=0.1,
         goal_model=settings.goal_model,
@@ -426,6 +437,7 @@ async def run_prediction(
         "mode": mode,
         "base_home_xg": base_home_xg,
         "base_away_xg": base_away_xg,
+        "base_xg_source": base_xg_source,
         "lambda_home_ci": _lambda_ci(out.home_xg, settings.bootstrap_xg_sigma),
         "lambda_away_ci": _lambda_ci(out.away_xg, settings.bootstrap_xg_sigma),
         "prediction": out,

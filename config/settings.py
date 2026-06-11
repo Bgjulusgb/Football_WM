@@ -156,6 +156,14 @@ class Settings(BaseSettings):
     # Halftime λ share for the HT/FT market (first-half goals are slightly rarer).
     ht_lambda_share: float = 0.45
 
+    # Dixon-Coles MLE base-xG estimator (analysis/xg_estimator.py). OFF by default
+    # so the naive YAML base xG (and thus the default output) is unchanged; turn
+    # on to fit attack/defence + home advantage from time-decayed history.
+    use_mle_xg: bool = False
+    mle_time_decay_xi: float = 0.0065     # exp(-ξ·Δt_days); 0.0065 ≈ ~2-year half-life
+    mle_min_matches: int = 6
+    mle_max_iter: int = 200
+
     # MULTIFACTOR-02: external data-source toggles. Defaults assume the live
     # endpoints; flip to true for offline / CI runs.
     use_mock_openfootball: bool = False

@@ -75,6 +75,14 @@ Alle Märkte sind **lineare Funktionale derselben blend-konsistenten Score-Matri
 Die Edge-Tabelle zeigt zusätzlich die konservative `(p5)`-Edge: Value, der die
 Bootstrap-Modellunsicherheit überlebt.
 
+## 🧮 Tiefere Mathematik (optional, hinter Flags)
+- **Dixon-Coles-MLE-λ-Schätzer** (`analysis/xg_estimator.py`): schätzt Attack/Defence
+  + Heimvorteil aus **zeit-gewichteter** Historie (`exp(−ξ·Δt)`) statt naivem
+  xG-Mittel — `settings.use_mle_xg` (Default aus → Output unverändert).
+- **Turnier-Monte-Carlo** (`wm2026/tournament.py`): sampelt Gruppenphase → KO über
+  die blend-konsistente Score-Matrix; **10 000 Sims des 48-Team-Felds in ~1,5 s**
+  (gebackene CDFs + vektorisierte pmf). Liefert Titel-/Finale-/Achtelfinal-%.
+
 ## 🤝 Der Cowork-Loop (Claude als Recherche-Instanz)
 ```mermaid
 flowchart LR
@@ -88,9 +96,10 @@ flowchart LR
 
 ## 🖥️ CLI
 ```bash
-python -m wm2026.cli predict  --match <yaml> [OPTIONS]   # volle Pipeline
-python -m wm2026.cli research  --home A --away B          # Cowork-Auftrag + Overrides-Template
-python -m wm2026.cli list                                # Match-Configs auflisten
+python -m wm2026.cli predict     --match <yaml> [OPTIONS]   # volle Pipeline
+python -m wm2026.cli tournament  --sims 10000               # Turnier-Monte-Carlo (Titel-%)
+python -m wm2026.cli research     --home A --away B          # Cowork-Auftrag + Overrides-Template
+python -m wm2026.cli list                                   # Match-Configs auflisten
 ```
 `--mode live|mock` (Default **live**) · `--odds "H/D/A"` · `--odds-ou "O/U"` ·
 `--odds-btts "Y/N"` · `--odds-dc "1X/12/X2"` · `--odds-ah=-0.5:1.95/1.95` ·

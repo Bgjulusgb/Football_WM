@@ -41,7 +41,9 @@ jobs:
             tests/test_bivariate_poisson.py \
             tests/test_calibration_offline.py \
             tests/test_overrides.py \
-            tests/test_report_html.py
+            tests/test_report_html.py \
+            tests/test_xg_estimator.py \
+            tests/test_tournament.py
 
       - name: Debug harness — every function on mock data
         run: python debug.py -q
