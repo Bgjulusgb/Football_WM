@@ -40,9 +40,12 @@ jobs:
             tests/test_bivariate_poisson.py \
             tests/test_calibration_offline.py
 
+      - name: Debug harness — every function on mock data
+        run: python debug.py -q
+
       - name: Smoke — predict a sample fixture (mock, all markets)
         run: |
-          python -m wm2026.cli predict \
+          python -m wm2026.cli predict --mode mock \
             --match config/matches/group_a/cze_vs_rsa.yaml \
             --odds "2.10/3.40/3.20" --odds-ou "1.85/1.95" --odds-btts "1.80/2.00" \
             --odds-dc "1.28/1.30/1.55" --odds-ah=-0.5:1.95/1.95 \

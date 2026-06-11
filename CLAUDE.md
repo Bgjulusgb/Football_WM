@@ -9,14 +9,21 @@ A calibrated WM-2026 football prediction workflow. The thin orchestration layer
 `models_ml/` modules into one reproducible command. A fresh clone runs a full
 prediction **offline** (mock data, no API keys) with only `requirements.txt`.
 
-## Run & test (offline, no keys)
+## Run & test
 ```bash
 pip install -r requirements.txt
-python -m wm2026.cli predict --match config/matches/group_a/cze_vs_rsa.yaml \
-  --odds "2.10/3.40/3.20" --odds-ou "1.85/1.95"
-pytest tests/test_wm2026_pipeline.py tests/test_markets.py \
-       tests/test_edge_conservative.py tests/test_backtesting_rps.py -q
+# Default is --mode live (real internet data). Use --mode mock for offline/repro:
+python -m wm2026.cli predict --mode mock \
+  --match config/matches/group_a/cze_vs_rsa.yaml --odds "2.10/3.40/3.20" --odds-ou "1.85/1.95"
+python debug.py            # exercise every function on mock data (✅/❌ + summary)
+pytest tests/test_wm2026_pipeline.py tests/test_markets.py tests/test_edge_conservative.py \
+       tests/test_backtesting_rps.py tests/test_bivariate_poisson.py tests/test_calibration_offline.py -q
 ```
+> **Live is the default; tests/CI/`debug.py` pin `--mode mock`.** In live mode the
+> connectors fan out concurrently and degrade per-source to mock on failure; the
+> pipeline then emits `claude_tasks` (the **Cowork-Auftrag** — the live-data gaps
+> Claude must research via web search and feed back via the match YAML / `--odds*`
+> / `--sentiment-json`). See `_claude_tasks` in `wm2026/pipeline.py`.
 > **Tests run on _bare_ pytest by design.** `test_wm2026_pipeline.py` uses
 > `asyncio.run()` directly. Do **not** add `pytest-asyncio` to satisfy the older
 > `@pytest.mark.asyncio` factor tests — it breaks the bare-pytest suites that CI
