@@ -7,16 +7,23 @@
 Kalibrierter **Quant-Workflow** für WM-2026-Spiele: modulare Datenschicht →
 **20-Faktor-Ensemble** → **3-Modell-Tor-Stack** (Dixon-Coles · Negative-Binomial ·
 GLM-Poisson) → Prediction mit Konfidenzintervallen, vollem Markt-Board und
-Markt-Edge. Läuft **out-of-the-box offline** (Mock-Daten, keine API-Keys).
+Markt-Edge. **Default = Live-Daten** aus dem Internet; was die Konnektoren nicht
+holen, recherchiert **Claude im Cowork-Auftrag**. `--mode mock` läuft komplett
+offline (Tests/CI/Reproduzierbarkeit).
 
-## ⚡ Quickstart (offline, 60 s)
+## ⚡ Quickstart
 ```bash
 pip install -r requirements.txt
+# Live (Default): echte Internet-Daten; Lücken → Cowork-Auftrag für Claude
 python -m wm2026.cli predict --home Germany --away Brazil --stage QF \
-  --odds "2.40/3.20/2.90" --out reports/
+  --odds "2.40/3.20/2.90" --calibrate market --out reports/
+# Komplett offline & reproduzierbar:
+python -m wm2026.cli predict --mode mock --match config/matches/group_a/cze_vs_rsa.yaml
 ```
-`--match config/matches/<gruppe>/<spiel>.yaml` nutzt eine fertige Config
-(104 Spiele vorhanden); `--mode live` + `.env` zieht echte Daten.
+`--match config/matches/<gruppe>/<spiel>.yaml` nutzt eine fertige Config (104
+Spiele). Im Live-Default degradieren einzelne Quellen bei Bedarf auf Mock; der
+Report listet dann als **🤝 Cowork-Auftrag** genau die Werte, die Claude per Web
+Search nachrecherchieren und einspeisen soll.
 
 ## 🔁 8-Phasen-Pipeline (`wm2026/pipeline.py → run_prediction`)
 | Phase | Inhalt | Code |
@@ -42,9 +49,10 @@ Value, der die Modellunsicherheit überlebt.
 python -m wm2026.cli predict --match <yaml> [OPTIONS]
 python -m wm2026.cli list
 ```
-`--mode mock|live` · `--odds "H/D/A"` · `--odds-ou "O/U"` · `--odds-btts "Y/N"` ·
-`--odds-dc "1X/12/X2"` · `--odds-ah=-0.5:1.95/1.95` · `--bootstrap N` ·
-`--out DIR` · `--charts` · `--json-only`. Nach `pip install .` auch als `wm2026 …`.
+`--mode live|mock` (Default **live**) · `--odds "H/D/A"` · `--odds-ou "O/U"` ·
+`--odds-btts "Y/N"` · `--odds-dc "1X/12/X2"` · `--odds-ah=-0.5:1.95/1.95` ·
+`--calibrate auto|market|none` · `--bootstrap N` · `--out DIR` · `--charts` ·
+`--json-only`. Nach `pip install .` auch als `wm2026 …`.
 
 ## 📚 Mehr
 - **[`prompt.md`](prompt.md)** — Ein-Prompt-Einstieg für Claude Cowork.
@@ -54,14 +62,16 @@ python -m wm2026.cli list
 - Optionale Features: `pip install ".[viz]" ".[stats]" ".[sentiment]" ".[full]"` —
   fehlt eins, degradiert der Workflow sauber.
 
-## ✅ Tests & CI
+## ✅ Tests & Debug
 ```bash
 pip install pytest
 pytest tests/test_wm2026_pipeline.py tests/test_markets.py \
-       tests/test_edge_conservative.py tests/test_backtesting_rps.py -q
+       tests/test_edge_conservative.py tests/test_backtesting_rps.py \
+       tests/test_bivariate_poisson.py tests/test_calibration_offline.py -q
+python debug.py          # jede Funktion einmal auf Mock-Daten (✅/❌ + Summary)
 ```
-CI baut auf Python 3.11/3.12 nur den Core, fährt diese Suites und erzeugt eine
-Mock-Prediction als Artefakt.
+CI baut auf Python 3.11/3.12 nur den Core, fährt diese Suites + `debug.py` und
+erzeugt eine Mock-Prediction als Artefakt.
 
 ## 🔒 Sicherheit & Disclaimer
 Nie eine echte `.env` committen (Template: `.env.example`); geleakte Keys sofort

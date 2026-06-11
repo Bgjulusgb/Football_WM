@@ -59,8 +59,9 @@ def _add_predict_args(p: argparse.ArgumentParser) -> None:
                                         "e.g. --odds-ah=-0.5:1.95/1.95")
 
     run = p.add_argument_group("run options")
-    run.add_argument("--mode", choices=["mock", "live"], default="mock",
-                     help="mock = offline/no keys (default); live = use .env toggles")
+    run.add_argument("--mode", choices=["mock", "live"], default="live",
+                     help="live = fetch real internet data (DEFAULT); "
+                          "mock = offline, no keys/network (reproducible, for tests/CI)")
     run.add_argument("--bootstrap", type=int, default=None,
                      help="bootstrap samples for CIs (default: settings.bootstrap_n)")
     run.add_argument("--calibrate", choices=["auto", "market", "none"], default="auto",

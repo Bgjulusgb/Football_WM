@@ -22,29 +22,32 @@ developer guide in [`CLAUDE.md`](CLAUDE.md); the math roadmap in
 >
 > **Tu Folgendes:**
 > 1. **Setup (einmalig):** `pip install -r requirements.txt`
-> 2. **Pipeline starten** (Mock = offline, ohne Keys):
+> 2. **Pipeline starten** (`--mode live` ist **Default** — echte Internet-Daten):
 >    ```bash
 >    python -m wm2026.cli predict --home "<<HOME>>" --away "<<AWAY>>" \
 >      --stage <<STAGE>> --odds "<<2.10/3.40/3.20>>" --odds-ou "<<1.85/1.95>>" \
 >      --odds-btts "<<1.80/2.00>>" --odds-dc "<<1.28/1.30/1.55>>" \
 >      --calibrate market --out reports/
 >    ```
->    Für echte Daten: `cp .env.example .env`, `USE_MOCK_*=false` + Keys, `--mode live`.
->    **Kalibrierung pro Spiel:** `--calibrate market` ankert die 1X2 an die
->    vig-freie Konsens-Quote (der kanonisch gut kalibrierte Forecaster,
->    Constantinou & Fenton 2013). Hast du ein Prior-Set (WC2022/EURO2024/Copa2024
->    als CSV)? → `python scripts/fit_calibration_offline.py hist.csv`, dann
->    greift `--calibrate auto` automatisch.
-> 3. **Report lesen & erklären:** JSON + Markdown aus `reports/`. Gib mir:
+>    (`--mode mock` nur für offline/reproduzierbar.) **Kalibrierung pro Spiel:**
+>    `--calibrate market` ankert die 1X2 an die vig-freie Konsens-Quote (der
+>    kanonisch gut kalibrierte Forecaster, Constantinou & Fenton 2013).
+> 3. **🤝 DEIN ESSENZIELLER COWORK-AUFTRAG (Pflicht):** Der Report enthält eine
+>    Sektion **„Cowork-Auftrag (live data gaps)"** — die Werte, die die
+>    Konnektoren **nicht** automatisch holen konnten. Arbeite sie ab:
+>    für **jeden** Eintrag den Wert per **Web Search** recherchieren, mit
+>    `(value, source_url, fetched_at)` belegen und wie unter „einspeisen via"
+>    angegeben einspeisen (xG/Elo/Form → Match-YAML, Quoten → `--odds*`,
+>    Stimmung → `--sentiment-json`). Dann die Pipeline **erneut** fahren, bis die
+>    Validation-Warnung „X/Y slices degraded" verschwindet bzw. minimal ist.
+>    Ohne diesen Schritt ist die Prediction **mock-degradiert (illustrativ)**.
+> 4. **Report lesen & erklären:** JSON + Markdown aus `reports/`. Gib mir:
 >    - Executive Summary (Pick + Stake-Level + Top-3-Faktoren + Confidence-Ampel)
 >    - die **Edge-Tabelle inkl. der `(p5)`-Spalten** — eine Edge zählt nur, wenn
 >      sie auch auf der konservativen Bootstrap-Untergrenze (p5) positiv bleibt
 >    - das **Derived-Markets-Board**: Double Chance, Draw-No-Bet, Asian Handicap
 >      (inkl. Viertellinien), alternative Totals, Clean Sheet, Win-to-Nil, Odd/Even
->    - alle Validation-Warnings (v.a. „mock = illustrativ")
-> 4. **Recherche-Modus** (wenn Live-Fragen): fehlende Werte (Lineups, Verletzungen,
->    Wetter, Quoten) per Web Search holen, mit `(value, source, fetched_at)`
->    belegen, in die Flags/YAML eintragen, Pipeline erneut fahren.
+>    - welche Cowork-Aufträge du erledigt hast und welche offen blieben
 >
 > **Ausgabe:** strikt der JSON-Report (Phase 8) + ein knapper Markdown-Brief.
 > Disclaimer immer mitschicken: Forschung/Bildung, keine Wett-Empfehlung,

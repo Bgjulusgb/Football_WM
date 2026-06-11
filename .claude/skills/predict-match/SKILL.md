@@ -23,8 +23,16 @@ python -m wm2026.cli predict --home "<HOME>" --away "<AWAY>" --stage <Group|R16|
   --out reports/
 ```
 From a config: `--match config/matches/<group>/<slug>.yaml` (list them with
-`python -m wm2026.cli list`). For real data: `--mode live` after `cp .env.example .env`
-and setting `USE_MOCK_*=false` + keys. Omit any `--odds-*` you don't have.
+`python -m wm2026.cli list`). **`--mode live` is the DEFAULT** (real internet
+data; per-source mock fallback on failure); pass `--mode mock` for a fully
+offline/reproducible run. Omit any `--odds-*` you don't have.
+
+**Essential Cowork step:** in live mode the report includes a **🤝 Cowork-Auftrag
+(live data gaps)** section — the values the connectors couldn't fetch. Work it:
+research each entry via web search, cite `(value, source, fetched_at)`, and feed
+it back the way the "einspeisen via" hint says (xG/Elo → match YAML, odds →
+`--odds*`, sentiment → `--sentiment-json`), then re-run until the "X/Y slices
+degraded" warning is minimal. Without it the prediction is mock-degraded.
 
 **Calibration (Phase 5):** add `--calibrate market` to anchor the 1X2 toward the
 vig-free consensus odds (the canonical well-calibrated forecaster, Constantinou &

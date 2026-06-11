@@ -132,6 +132,32 @@ def test_calibrate_none_disables():
     assert result["calibration"]["applied"] is False
 
 
+def test_claude_tasks_flags_live_gaps_and_missing_odds():
+    from wm2026.pipeline import _claude_tasks
+    cfg = synth_config(home_team="Spain", away_team="Japan")
+    prov = {
+        "xg_home": {"mode": "mock"}, "xg_away": {"mode": "live"},
+        "weather": {"mode": "error"},
+        "lineup_home": {"mode": "live"}, "lineup_away": {"mode": "live"},
+    }
+    tasks = _claude_tasks(prov, cfg, mode="live", has_odds=False)
+    cats = {t["category"] for t in tasks}
+    assert {"xg", "weather", "odds"} <= cats     # one mock slice / error / no odds → tasks
+    assert "lineup" not in cats                  # both live → no task
+    assert tasks[0]["priority"] == "high"        # sorted, odds/xg first
+    # Mock mode has no live gaps by design; odds still requested when absent.
+    assert _claude_tasks(prov, cfg, mode="mock", has_odds=True) == []
+
+
+def test_report_renders_cowork_assignment_when_odds_missing():
+    cfg = synth_config(home_team="Spain", away_team="Japan")
+    result = _run(cfg)                            # mock, no odds → odds task fires
+    assert any(t["category"] == "odds" for t in result["claude_tasks"])
+    report = build_report(result)
+    assert "claude_tasks" in report["json"]
+    assert "Cowork-Auftrag" in report["markdown"]
+
+
 def test_factor_unavailability_renormalises():
     # No external data + no sentiment → some factors go unavailable, but the
     # ensemble must still return a proper distribution (re-normalisation).

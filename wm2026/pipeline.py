@@ -206,6 +206,74 @@ def _validate(
     return warnings
 
 
+# Map provenance slices → ONE Claude research task per data category. (category,
+# priority, slices, what-to-find, how-to-feed-it-back).
+_RESEARCH_CATEGORIES: tuple[tuple[str, str, tuple[str, ...], str, str], ...] = (
+    ("xg", "high", ("xg_home", "xg_away"),
+     "xG erzielt/zugelassen (Understat/FBref, letzte ~10 Spiele)",
+     "Match-YAML: teams.home/away.avg_xg_season + avg_xg_conceded"),
+    ("lineup", "high", ("lineup_home", "lineup_away"),
+     "voraussichtliche Startelf + bestätigte Ausfälle",
+     "qualitativ → avg_xg_season in der YAML anpassen (Schlüsselausfall senkt sie)"),
+    ("injuries", "high", ("injuries_structured_home", "injuries_structured_away"),
+     "Verletzungen/Sperren der Schlüsselspieler",
+     "wie lineup — in die xG/Elo-Schätzung der YAML einarbeiten"),
+    ("weather", "medium", ("weather",),
+     "Wetter (Temp/Regen/Wind) am Venue zur Anstoßzeit",
+     "qualitativ → Tor-Erwartung in der YAML (Hitze/Regen dämpft)"),
+    ("news", "medium", ("news",),
+     "aktuelle Team-News (Form, Trainerwechsel, Motivation)",
+     "--sentiment-json oder xG-Anpassung in der YAML"),
+    ("history", "medium", ("history_home", "history_away", "h2h"),
+     "letzte Ergebnisse + Head-to-Head",
+     "YAML: avg_xg_season / form_last5"),
+    ("squad_value", "low", ("squad_value_home", "squad_value_away"),
+     "Kaderwert (Transfermarkt)", "informativ"),
+)
+
+_PRIO_ORDER = {"high": 0, "medium": 1, "low": 2}
+
+
+def _claude_tasks(
+    provenance: dict[str, Any], cfg: dict[str, Any], *, mode: str, has_odds: bool
+) -> list[dict[str, Any]]:
+    """Phase 1.5 — Claude's essential Cowork assignment.
+
+    Lists the LIVE data the automated connectors could **not** fetch (each slice
+    came back ``mock`` or ``error``), so Claude researches it via web search and
+    feeds it back. Empty in mock mode (no live gaps by design); odds are always
+    requested when absent since they drive the edge table + market calibration.
+    """
+    teams = cfg.get("teams", {})
+    home = (teams.get("home", {}) or {}).get("name", "Home")
+    away = (teams.get("away", {}) or {}).get("name", "Away")
+    venue = (cfg.get("match", {}) or {}).get("venue") or "venue"
+    tasks: list[dict[str, Any]] = []
+
+    if mode == "live":
+        for cat, prio, slices, what, fill in _RESEARCH_CATEGORIES:
+            degraded = [s for s in slices
+                        if (provenance.get(s, {}) or {}).get("mode") in ("mock", "error")]
+            if degraded:
+                tasks.append({
+                    "priority": prio, "category": cat,
+                    "task": f"Recherchiere {what} für {home} vs {away}",
+                    "fill_via": fill, "missing_slices": degraded,
+                })
+
+    if not has_odds:
+        tasks.append({
+            "priority": "high", "category": "odds",
+            "task": (f"Recherchiere die Buchmacher-Konsens-Quoten "
+                     f"(1X2, O/U 2.5, BTTS) für {home} vs {away} ({venue})"),
+            "fill_via": "--odds \"H/D/A\" --odds-ou \"O/U\" --odds-btts \"Y/N\" (+ --calibrate market)",
+            "missing_slices": ["odds"],
+        })
+
+    tasks.sort(key=lambda t: _PRIO_ORDER.get(t["priority"], 3))
+    return tasks
+
+
 async def run_prediction(
     cfg: dict[str, Any],
     *,
@@ -331,8 +399,17 @@ async def run_prediction(
             log.warning("asian_handicap_edge_failed", line=ah_line)
     best_value = edge_mod.best_value_pick(edge_rows)
 
-    # Phase 7 — validation.
+    # Phase 7 — validation + Claude's Cowork research assignment.
     warnings = _validate(out, ensemble, signals, provenance)
+    claude_tasks = _claude_tasks(provenance, cfg, mode=mode, has_odds=bool(odds_1x2))
+    if mode == "live":
+        slices = [p for p in provenance.values() if isinstance(p, dict)]
+        degraded = sum(1 for p in slices if p.get("mode") in ("mock", "error"))
+        if degraded:
+            warnings.append(
+                f"live mode: {degraded}/{len(slices)} data slices degraded to mock — "
+                f"Claude must research the gaps (see claude_tasks / the Cowork-Auftrag section)"
+            )
 
     return {
         "config": cfg,
@@ -352,6 +429,7 @@ async def run_prediction(
         "edges": edge_rows,
         "best_value": best_value,
         "warnings": warnings,
+        "claude_tasks": claude_tasks,
         "bootstrap_n": boot,
     }
 

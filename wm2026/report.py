@@ -122,6 +122,7 @@ def build_json(result: dict[str, Any]) -> dict[str, Any]:
         "edge_table": result.get("edges", []),
         "best_value": result.get("best_value"),
         "warnings": result.get("warnings", []),
+        "claude_tasks": result.get("claude_tasks", []),
         "data_sources": result.get("provenance", {}),
     }
 
@@ -204,6 +205,19 @@ def build_markdown(result: dict[str, Any], js: dict[str, Any]) -> str:
         L.append("## ⚠️ Validation warnings")
         for w in result["warnings"]:
             L.append(f"- {w}")
+        L.append("")
+
+    # Claude's essential Cowork assignment — the live-data gaps to research.
+    tasks = result.get("claude_tasks") or []
+    if tasks:
+        L.append("## 🤝 Claude — Cowork-Auftrag (live data gaps)")
+        L.append("*Diese Werte konnten **nicht** automatisch geholt werden. "
+                 "Recherchiere sie (Web Search), trage `(value, source, fetched_at)` "
+                 "nach und füttere sie zurück — sonst bleibt die Prediction "
+                 "mock-degradiert (illustrativ).*")
+        for i, t in enumerate(tasks, 1):
+            L.append(f"{i}. **[{t['priority']}]** {t['task']}")
+            L.append(f"   → einspeisen via: `{t['fill_via']}`")
         L.append("")
 
     # C) Factor tornado --------------------------------------------------------
