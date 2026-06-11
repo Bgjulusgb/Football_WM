@@ -81,11 +81,38 @@ def test_report_json_schema_and_markdown():
     json.dumps(js)
     for key in ("match_id", "model_version", "markets", "per_model",
                 "confidence_intervals", "ensemble_confidence",
-                "factors_used", "factors_total", "edge_table"):
+                "factors_used", "factors_total", "edge_table", "derived_markets"):
         assert key in js, f"missing {key}"
     assert set(js["per_model"]) == {"poisson", "negbin", "glm_poisson"}
     assert "# 🏆 WM 2026" in report["markdown"]
     assert "Edge Table" in report["markdown"]
+    assert "Derived markets" in report["markdown"]
+
+
+def test_derived_markets_present_and_consistent():
+    cfg = synth_config(home_team="Spain", away_team="Morocco",
+                       home_xg=1.6, away_xg=1.1)
+    result = _run(cfg)
+    dm = result["derived_markets"]
+    for key in ("double_chance", "draw_no_bet", "asian_handicap", "totals",
+                "clean_sheet", "win_to_nil", "odd_even"):
+        assert key in dm
+    # Double chance 1X must equal home_win + draw of the headline 1X2.
+    out = result["prediction"]
+    assert abs(dm["double_chance"]["1X"] - (out.home_win_prob + out.draw_prob)) < 1e-6
+    # Totals at 2.5 must match the headline over_25.
+    o25 = next(t for t in dm["totals"] if abs(t["line"] - 2.5) < 1e-9)
+    assert abs(o25["over"] - out.over_25) < 1e-6
+
+
+def test_double_chance_and_asian_handicap_edges():
+    cfg = synth_config(home_team="Brazil", away_team="Serbia",
+                       home_xg=1.9, away_xg=0.9)
+    result = _run(cfg, odds_dc=[1.20, 1.25, 1.60],
+                  odds_ah=(-0.5, 1.95, 1.95))
+    markets = {r["market"] for r in result["edges"]}
+    assert "Double Chance" in markets
+    assert any(m.startswith("AH ") for m in markets)
 
 
 def test_factor_unavailability_renormalises():

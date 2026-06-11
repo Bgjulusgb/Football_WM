@@ -31,6 +31,7 @@ from data_sources.orchestrator import DataSourceOrchestrator
 from factors.base import FactorContext
 from factors.registry import get_active_factors
 from wm2026 import edge as edge_mod
+from wm2026 import markets as markets_mod
 from wm2026.context import apply_runtime_profile, build_context
 
 log = structlog.get_logger("wm2026.pipeline")
@@ -180,6 +181,8 @@ async def run_prediction(
     odds_1x2: list[float] | None = None,
     odds_ou25: list[float] | None = None,
     odds_btts: list[float] | None = None,
+    odds_dc: list[float] | None = None,
+    odds_ah: tuple[float, float | None, float | None] | None = None,
 ) -> dict[str, Any]:
     """Run all phases for one match config and return the raw ``result`` dict.
 
@@ -237,11 +240,23 @@ async def run_prediction(
         market_prior=None,
     )
 
-    # Score-probability matrix (primary model at the final λ) for the heatmap.
+    # Blended score-probability matrix (all 3 models at the final λ) — used for
+    # BOTH the heatmap and every derived market (Phase-1 math upgrade). Because
+    # the markets are linear functionals of the matrix, deriving them here keeps
+    # Double-Chance / Asian-Handicap / totals exactly consistent with the
+    # blended headline 1X2 + O/U numbers.
+    from models_ml.poisson_goals import blend_score_matrix
+
+    derived_markets: dict[str, Any] = {}
+    score_matrix: list[list[float]] = []
     try:
-        matrix = predictor.poisson.predict_matrix(out.home_xg, out.away_xg)
+        matrix = blend_score_matrix(predictor.models, out.home_xg, out.away_xg)
         score_matrix = [[float(matrix[i][j]) for j in range(matrix.shape[1])]
                         for i in range(matrix.shape[0])]
+        derived_markets = markets_mod.derive_all(
+            matrix,
+            p1x2=(out.home_win_prob, out.draw_prob, out.away_win_prob),
+        )
     except Exception:  # pragma: no cover - defensive
         score_matrix = []
 
@@ -258,9 +273,22 @@ async def run_prediction(
         "over_25": out.over_25,
         "btts": out.btts,
     }
+    # Blended bootstrap CI → conservative (p5) edge / half-Kelly columns.
+    ci_blended = (out.features.get("confidence_intervals") or {}).get("blended")
     edge_rows = edge_mod.compute_edges(
         blended, odds_1x2=odds_1x2, odds_ou25=odds_ou25, odds_btts=odds_btts,
+        odds_dc=odds_dc, ci=ci_blended,
     )
+    # Optional Asian-handicap value line (model probs from the score matrix).
+    if odds_ah is not None:
+        ah_line, ah_home_odd, ah_away_odd = odds_ah
+        try:
+            ah_model = markets_mod.asian_handicap(matrix, float(ah_line))
+            edge_rows.extend(edge_mod.evaluate_asian_handicap(
+                ah_model, home_odd=ah_home_odd, away_odd=ah_away_odd,
+            ))
+        except Exception:  # pragma: no cover - defensive
+            log.warning("asian_handicap_edge_failed", line=ah_line)
     best_value = edge_mod.best_value_pick(edge_rows)
 
     # Phase 7 — validation.
@@ -278,6 +306,7 @@ async def run_prediction(
         "ensemble": ensemble,
         "signals": signals,
         "score_matrix": score_matrix,
+        "derived_markets": derived_markets,
         "calibration": calibration,
         "provenance": provenance,
         "edges": edge_rows,

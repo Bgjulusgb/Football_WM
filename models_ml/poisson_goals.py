@@ -176,6 +176,35 @@ def blend_markets(
     return out
 
 
+def blend_score_matrix(
+    models: Dict[str, DixonColesPoisson],
+    home_xg: float,
+    away_xg: float,
+    weights: Dict[str, float] | None = None,
+) -> np.ndarray:
+    """Weighted average of the per-model score matrices at the same (λ_home, λ_away).
+
+    Because every market we read off the matrix (1X2, totals, BTTS, Asian
+    handicap, …) is a *linear* functional of the cells, deriving them from this
+    blended matrix yields **exactly** the weighted blend of the per-model market
+    values — i.e. the derived markets stay consistent with ``blend_markets`` and
+    the heatmap shows the same distribution the headline numbers come from.
+    Each ``predict_matrix`` is already normalised to sum 1, and the weights are
+    renormalised here, so the result is itself a proper distribution.
+    """
+    weights = weights or DEFAULT_BLEND_WEIGHTS
+    total_w = sum(weights.get(name, 0.0) for name in models) or 1.0
+    acc: np.ndarray | None = None
+    for name, model in models.items():
+        w = weights.get(name, 0.0) / total_w
+        m = model.predict_matrix(home_xg, away_xg) * w
+        acc = m if acc is None else acc + m
+    if acc is None:
+        return np.zeros((1, 1))
+    total = acc.sum()
+    return acc / total if total > 0 else acc
+
+
 def bootstrap_markets(
     model: DixonColesPoisson,
     home_xg: float,
@@ -221,6 +250,7 @@ __all__ = [
     "build_goal_model",
     "build_all_goal_models",
     "blend_markets",
+    "blend_score_matrix",
     "bootstrap_markets",
     "MODEL_NAMES",
     "DEFAULT_BLEND_WEIGHTS",

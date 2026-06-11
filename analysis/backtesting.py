@@ -3,6 +3,10 @@
 Computes:
   * Brier score (lower = better; perfect = 0)
   * Log loss
+  * RPS — Ranked Probability Score (the proper, *order-aware* 1X2 metric;
+    Constantinou & Fenton 2012). Penalises being wrong by the ordinal distance
+    Home > Draw > Away, so predicting Draw when Home happens hurts less than
+    predicting Away. Lower = better; perfect = 0, worst = 1.
   * Calibration buckets ("70% predictions hit X% of the time")
 
 The endpoint that exposes this lives in api/analytics.py.
@@ -29,6 +33,7 @@ class BacktestReport:
     accuracy: float = 0.0
     brier: float = 0.0
     log_loss: float = 0.0
+    rps: float = 0.0
     calibration: list[CalibrationBucket] = field(default_factory=list)
 
 
@@ -50,12 +55,30 @@ def _log_loss(p: tuple[float, float, float], y: tuple[float, float, float]) -> f
     return -sum(yi * math.log(max(pi, eps)) for pi, yi in zip(p, y))
 
 
+def _rps(p: tuple[float, float, float], y: tuple[float, float, float]) -> float:
+    """Ranked Probability Score for the ordered outcome Home > Draw > Away.
+
+    With r=3 ordered categories, RPS = 1/(r-1) · Σ_{k=1}^{r-1} (CP_k − CY_k)²
+    over the *cumulative* predicted / actual vectors. 0 = perfect, 1 = worst
+    (all mass on the category at the opposite end of the order).
+    """
+    cp = 0.0
+    cy = 0.0
+    acc = 0.0
+    for k in range(len(p) - 1):       # only the first r-1 cumulatives matter
+        cp += p[k]
+        cy += y[k]
+        acc += (cp - cy) ** 2
+    return acc / (len(p) - 1)
+
+
 def compute(rows: Iterable) -> BacktestReport:
     """`rows` are MatchPrediction ORM rows with actual_home_score / actual_away_score set."""
     n = 0
     correct = 0
     brier_sum = 0.0
     log_sum = 0.0
+    rps_sum = 0.0
     buckets: dict[int, list[tuple[float, float]]] = {i: [] for i in range(10)}
 
     for r in rows:
@@ -65,6 +88,7 @@ def compute(rows: Iterable) -> BacktestReport:
         y_vec = _outcome_vec(int(r.actual_home_score), int(r.actual_away_score))
         brier_sum += _brier(p_vec, y_vec)
         log_sum += _log_loss(p_vec, y_vec)
+        rps_sum += _rps(p_vec, y_vec)
 
         predicted_idx = max(range(3), key=lambda i: p_vec[i])
         actual_idx = max(range(3), key=lambda i: y_vec[i])
@@ -95,5 +119,6 @@ def compute(rows: Iterable) -> BacktestReport:
         accuracy=correct / n,
         brier=brier_sum / n,
         log_loss=log_sum / n,
+        rps=rps_sum / n,
         calibration=[c for c in calibration if c.n > 0],
     )

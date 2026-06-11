@@ -314,6 +314,7 @@ async def backtesting(session: AsyncSession = Depends(get_session)):
         "accuracy": round(report.accuracy, 4),
         "brier": round(report.brier, 4),
         "log_loss": round(report.log_loss, 4),
+        "rps": round(report.rps, 4),
         "calibration": [
             {
                 "bucket_lo": round(b.bucket_lo, 2),
