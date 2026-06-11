@@ -37,12 +37,15 @@ Dann gewichtete Attack/Defence-Raten statt Saison-Mittel.
 eingehängt in `factors/_history.py` (ersetzt `0.9^index`) hinter einem
 `settings.dc_time_decay_xi`-Flag (Default = altes Verhalten).
 
-### 2.2 Echtes bivariates Poisson als 4. Modell
-**Problem:** Tor-Korrelation wird nur über die DC-ρ-Korrektur der 4 tiefen
-Scores approximiert. **Formel:** Karlis-Ntzoufras bivariates Poisson mit
-`λ₃`-Kovarianz: `X=Y₁+Y₃, Y=Y₂+Y₃`, `Yᵢ~Poisson(λᵢ)`. **Wo:**
-`models_ml/poisson_goals.py` (`BivariatePoisson(DixonColesPoisson)`), in
-`MODEL_NAMES` + `DEFAULT_BLEND_WEIGHTS` aufnehmen (Gewichte re-normalisieren).
+### 2.2 Echtes bivariates Poisson als 4. Modell — ✅ Klasse implementiert (opt-in)
+**Status:** `BivariatePoisson` (Karlis-Ntzoufras, `λ₃`-Kovarianz) ist in
+`models_ml/poisson_goals.py` umgesetzt + getestet (`tests/test_bivariate_poisson.py`):
+`X=Y₁+Y₃, Y=Y₂+Y₃`, `Yᵢ~Poisson(λᵢ)`, `Cov=λ₃`. `λ₃` wird aus dem xG
+herausgelöst (`λ₁=home−λ₃`, `λ₂=away−λ₃`) → **Marginal-Means bleiben exakt**,
+nur die Korrelation (mehr Unentschieden) steigt; `λ₃→0` ⇒ unabhängiges Poisson.
+Über `build_goal_model("bivariate")` wählbar. **Offen (bewusst defensiv):** in
+`MODEL_NAMES` + `DEFAULT_BLEND_WEIGHTS` aufnehmen, sobald die Blend-Gewichte
+(2.4) auf einem Backtest-Set neu getunt sind — das ändert sonst alle Default-Outputs.
 
 ### 2.3 Offline-Kalibrierungs-Fit (das `data/training/`-Loch schließen)
 **Problem:** `analysis/calibration.py` fittet nur aus der DB (Admin-Pfad); ein

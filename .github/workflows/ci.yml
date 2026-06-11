@@ -30,13 +30,14 @@ jobs:
           pip install -r requirements.txt
           pip install pytest
 
-      - name: Run wm2026 + Phase-1 math test suites (mock, offline)
+      - name: Run wm2026 + math test suites (mock, offline)
         run: |
           pytest -q \
             tests/test_wm2026_pipeline.py \
             tests/test_markets.py \
             tests/test_edge_conservative.py \
-            tests/test_backtesting_rps.py
+            tests/test_backtesting_rps.py \
+            tests/test_bivariate_poisson.py
 
       - name: Smoke — predict a sample fixture (mock, all markets)
         run: |
