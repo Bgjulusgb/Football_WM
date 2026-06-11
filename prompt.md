@@ -1,12 +1,19 @@
 # ⚡ WM 2026 — One-Prompt Cowork Entry
 
 Copy this whole block into Claude (Cowork / Code) **with your match filled in**.
+Bei einem Repo mit `.claude/hooks/session-start.sh` und 9 vorinstallierten
+Skills ist das **alles, was du brauchst** — Hook installiert beim Start
+core + `[viz,sentiment,stats]`, der `wm-quant-analyst`-Agent orchestriert den
+8-Phasen-Workflow inkl. Cowork-Auftrag-Loop.
+
 It runs the repo's calibrated 8-phase pipeline and returns a prediction with
 confidence intervals, the full market board, and bookmaker edge — using code,
-not guesses. The deep methodology lives in
-[`prompts/WM2026_MASTER_PROMPT.md`](prompts/WM2026_MASTER_PROMPT.md); the
-developer guide in [`CLAUDE.md`](CLAUDE.md); the math roadmap in
-[`verbesserungsplan.md`](verbesserungsplan.md).
+not guesses.
+
+- **Setup-Doku:** [`SETUP_COWORK.md`](SETUP_COWORK.md) — Cowork-Aufbau A→Z.
+- **Methodik:** [`prompts/WM2026_MASTER_PROMPT.md`](prompts/WM2026_MASTER_PROMPT.md).
+- **Developer-Guide:** [`CLAUDE.md`](CLAUDE.md).
+- **Math-Roadmap:** [`verbesserungsplan.md`](verbesserungsplan.md).
 
 ---
 

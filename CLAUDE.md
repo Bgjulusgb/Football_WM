@@ -95,3 +95,31 @@ in `prompts/WM2026_MASTER_PROMPT.md` (Phase 8).
 - Don't break the mock path — it's the contract that the repo runs out of the box.
 - Don't present a prediction without its confidence interval, or an edge > 10 %
   without a sanity-check note.
+
+## Cowork-Layer (`.claude/`)
+
+The repo ships a complete Claude Code on the Web Cowork integration —
+**setup-free**, idempotent, additive:
+
+```
+.claude/
+  settings.json                # registers SessionStart hook + permissions allowlist
+  hooks/
+    session-start.sh           # idempotent bootstrap: pip install core+[viz,sentiment,stats], verify, smoke-test
+  skills/                      # 9 specialized SKILL.md files
+    predict-match/             #   ⭐ run the full 8-phase pipeline, interpret report
+    research-fixture/          #   Cowork-Auftrag loop: Web Search → overrides.json
+    read-report/               #   parse JSON, build UI-ready briefing
+    analyze-edge/              #   3-stage filter (sanity → p5 → confidence), Kelly stake
+    tournament-sim/            #   10k tournament Monte-Carlo
+    calibrate-offline/         #   fit isotonic/Platt artifacts from history CSV
+    tune-models/               #   RPS-based Optuna blend-weight tuning
+    list-fixtures/             #   browse the 104 match YAMLs
+    cowork-setup/              #   first-time onboarding, debugging
+  agents/
+    wm-quant-analyst.md        # opus agent that orchestrates end-to-end (proactive)
+```
+
+The hook sets `.claude/.bootstrapped` on success → next session skips reinstall.
+Force re-run with `WM2026_FORCE_BOOTSTRAP=1`. Setup walkthrough lives in
+`SETUP_COWORK.md`.

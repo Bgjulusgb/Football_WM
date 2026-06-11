@@ -39,3 +39,7 @@ htmlcov/
 .idea/
 .vscode/
 .DS_Store
+
+# ── Claude Cowork: SessionStart-Hook marker (regenerated per container) ───────
+.claude/.bootstrapped
+.claude/settings.local.json

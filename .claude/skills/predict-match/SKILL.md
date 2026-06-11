@@ -1,66 +1,106 @@
 ---
 name: predict-match
-description: Run the WM-2026 prediction pipeline for a match and interpret the report. Use when the user asks for a match prediction, an edge/value analysis, Asian-handicap / over-under / BTTS probabilities, or wants to run the wm2026 workflow for a fixture.
+description: Run the WM-2026 prediction pipeline for a match and interpret the report. Use when the user asks for a match prediction, an edge/value analysis, Asian-handicap / over-under / BTTS / Double-Chance / Draw-No-Bet probabilities, a tournament/group simulation, or wants to run the wm2026 workflow for a fixture.
 ---
 
-# Predict a WM-2026 match
+# Predict a WM-2026 match — end-to-end Cowork-Loop
 
-Run the repo's calibrated 8-phase pipeline and explain the result. Everything
-runs **offline** in mock mode (no API keys). Deep methodology:
-`prompts/WM2026_MASTER_PROMPT.md`; conventions: `CLAUDE.md`.
+Run the calibrated **8-phase pipeline** of this repo and return a fully-grounded
+quant briefing. Deep methodology: `prompts/WM2026_MASTER_PROMPT.md`; conventions:
+`CLAUDE.md`; math roadmap: `verbesserungsplan.md`. Hook installs deps; if you see
+"smoke ok" in the session log, you're ready.
 
-## 1. Ensure deps (once)
+## 0. Vorgehen (in dieser Reihenfolge)
+
+1. **Verify** (optional, falls Pipeline noch nie lief in der Sitzung):
+   ```bash
+   python -m wm2026.cli predict --mode mock --home A --away B --stage Group --format json | tail -1 | python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); print("ok" if "match_id" in d else "FAIL")'
+   ```
+2. **Research** (Cowork-Auftrag): live-Daten per Web Search holen (siehe Skill
+   `research-fixture`).
+3. **Predict** (siehe unten — Schritt 1 + 2).
+4. **Read & explain** (siehe Skill `read-report` + `analyze-edge`).
+
+## 1. Pipeline ausführen
+
+### Ad-hoc (ohne YAML)
 ```bash
-pip install -r requirements.txt
-```
-
-## 2. Run the prediction
-Ad-hoc (no YAML needed):
-```bash
-python -m wm2026.cli predict --home "<HOME>" --away "<AWAY>" --stage <Group|R16|QF|SF|Final> \
+python -m wm2026.cli predict \
+  --home "<HOME>" --away "<AWAY>" --stage <Group|R32|R16|QF|SF|Final> \
   --odds "<H/D/A>" --odds-ou "<O/U>" --odds-btts "<Y/N>" \
   --odds-dc "<1X/12/X2>" --odds-ah=<-0.5:HOME/AWAY> \
-  --out reports/
+  --calibrate market --format html --out reports/ --charts
 ```
-From a config: `--match config/matches/<group>/<slug>.yaml` (list them with
-`python -m wm2026.cli list`). **`--mode live` is the DEFAULT** (real internet
-data; per-source mock fallback on failure); pass `--mode mock` for a fully
-offline/reproducible run. Omit any `--odds-*` you don't have.
 
-**Essential Cowork step:** in live mode the report includes a **🤝 Cowork-Auftrag
-(live data gaps)** section — the values the connectors couldn't fetch. Work it:
-research each entry via web search, cite `(value, source, fetched_at)`, and feed
-it back the way the "einspeisen via" hint says (xG/Elo → match YAML, odds →
-`--odds*`, sentiment → `--sentiment-json`), then re-run until the "X/Y slices
-degraded" warning is minimal. Without it the prediction is mock-degraded.
-
-**Calibration (Phase 5):** add `--calibrate market` to anchor the 1X2 toward the
-vig-free consensus odds (the canonical well-calibrated forecaster, Constantinou &
-Fenton 2013) — the per-match calibration when you have no fitted history. If you
-*do* have a prior-tournament CSV `(home_win_prob,draw_prob,away_win_prob,home_score,away_score)`,
-run `python scripts/fit_calibration_offline.py hist.csv` once; then `--calibrate auto`
-applies the fitted isotonic/Platt artifact (works without sklearn).
-
-Note: Asian-handicap **negative** lines must use `=`, e.g. `--odds-ah=-0.5:1.95/1.95`
-(argparse treats a leading `-` as a flag otherwise).
-
-## 3. Read the report (`reports/<match_id>.md` + `.json`)
-Summarise for the user:
-- **Executive summary** — most-likely 1X2, λ (home/away), confidence gauge.
-- **Edge table** — and crucially the **`(p5)` columns**: an edge only counts as
-  real if it stays positive on the conservative bootstrap lower bound. Flag any
-  edge > 10 % with a sanity-check note ("why would the market miss this?").
-- **Derived markets** — Double Chance, Draw-No-Bet, Asian Handicap (incl. quarter
-  lines), alternative totals, clean sheet, win-to-nil, odd/even.
-- **Validation warnings** — especially "mock = illustrative, not live".
-
-## 4. Guardrails
-- Never give a point prediction without its confidence interval (p5/p50/p95).
-- Mock-mode numbers are illustrative — say so.
-- This is research/education, **not** betting advice.
-
-## Verify the workflow itself
+### Aus YAML
 ```bash
-pytest tests/test_wm2026_pipeline.py tests/test_markets.py \
-       tests/test_edge_conservative.py tests/test_backtesting_rps.py -q
+python -m wm2026.cli list                                 # alle 104 Configs auflisten
+python -m wm2026.cli predict --match config/matches/<group>/<slug>.yaml \
+  --odds "..." --odds-ou "..." --odds-btts "..." \
+  --calibrate market --format html --out reports/ --charts
 ```
+
+### Modi
+- **`--mode live`** ist Default — ~13 Konnektoren parallel; pro Quelle fällt
+  bei Fehler/Key-fehlt automatisch auf Mock zurück. Erzeugt
+  `claude_tasks` (Cowork-Auftrag) für jede degradierte Slice.
+- **`--mode mock`** = vollständig offline, reproduzierbar, illustrativ.
+
+### Asian-Handicap-Syntax
+Negative Linien **MIT `=`** wegen argparse:
+`--odds-ah=-0.5:1.95/1.95` ✅   `--odds-ah -0.5:1.95/1.95` ❌
+
+### Kalibrierung (Phase 5) — Pflicht für realistische Wahrscheinlichkeiten
+- `--calibrate market` (Empfohlen wenn du Live-Quoten hast):
+  ankert 1X2 an die **vig-freie Konsens-Quote** (Constantinou & Fenton 2013 —
+  der kanonisch gut kalibrierte Forecaster).
+- `--calibrate auto`: nutzt ein fitted Artefakt (siehe Skill `calibrate-offline`)
+  wenn vorhanden, sonst raw.
+- `--calibrate none`: nur für Debugging.
+
+## 2. Cowork-Loop (Pflicht in Live-Modus)
+
+Der Report enthält eine Sektion **„🤝 Cowork-Auftrag (live data gaps)"** mit
+priorisierter Liste. **Jeden Eintrag abarbeiten:**
+
+1. Wert per Web Search recherchieren, mit `(value, source_url, fetched_at)` belegen
+2. Wie unter „einspeisen via" angegeben einspeisen:
+   - **xG / Elo / Form** → in eine `overrides.json` (Template:
+     `python -m wm2026.cli research --home … --away … --out reports/`)
+   - **Quoten** → `--odds`, `--odds-ou`, `--odds-btts`, `--odds-dc`, `--odds-ah`
+   - **Stimmung** → `--sentiment-json <file>`
+3. Pipeline **erneut** fahren bis die "X/Y slices degraded"-Warnung minimal ist
+4. **Ohne diesen Schritt ist die Prognose mock-degradiert (illustrativ)**
+
+→ Details siehe Skill **`research-fixture`**.
+
+## 3. Mathematik-Schichten — alle aktivieren
+
+| Schicht | Aktivieren via |
+|---|---|
+| **Dixon-Coles + NegBin + GLM-Poisson + Bivariate** (4-Modell-Stack, blend-konsistent) | automatisch in Phase 4 |
+| **MLE-λ-Schätzer mit Zeitdecay** (Attack/Defence aus Historie) | `settings.use_mle_xg=True` (Env `USE_MLE_XG=true`) |
+| **Bootstrap-CIs** (p5/p50/p95 für jede Headline-Zahl) | `--bootstrap 500` (default) |
+| **Markt-Anker-Kalibrierung** | `--calibrate market` |
+| **Konservative p5-Edge / p5-Kelly** | automatisch in Phase 6 |
+| **Score-Heatmap + Faktor-Tornado (PNG)** | `--charts` (braucht matplotlib — vom Hook installiert) |
+
+## 4. Antworten — was du IMMER mitlieferst
+
+- **Headline 1X2** + **λ_home / λ_away** + **Bootstrap-CI [p5/p50/p95]**
+- **Edge-Tabelle** inkl. **`(p5)`-Spalten** — eine Edge zählt nur, wenn sie
+  positiv bleibt auf der konservativen Bootstrap-Untergrenze
+- **Derived-Markets-Board**: Double Chance, Draw-No-Bet, Asian Handicap (inkl.
+  Viertellinien), alternative Totals, Clean Sheet, Win-to-Nil, Odd/Even,
+  Winning Margin, Multi-Goal-Bands, Exact Totals, First Goal, HT/FT
+- **Cowork-Status**: erledigte vs offene Live-Daten-Gaps
+- **Konfidenz-Ampel** (`ensemble_confidence`) + Disclaimer:
+  *Forschung/Bildung, keine Wett-Empfehlung.*
+
+## 5. Guardrails
+
+- **Niemals** eine Punkt-Vorhersage ohne Konfidenzintervall.
+- **Mock-Daten sind illustrativ** — explizit kennzeichnen.
+- **Edge > 10 %** ⇒ Sanity-Check-Note („warum würde der Markt das verpassen?")
+- Wenn p5-Edge negativ ist trotz positivem p50: **Pass** empfehlen, nicht
+  beschönigen.
