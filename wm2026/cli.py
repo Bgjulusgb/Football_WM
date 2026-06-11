@@ -53,17 +53,42 @@ def _add_predict_args(p: argparse.ArgumentParser) -> None:
     odds.add_argument("--odds", help="1X2 decimal odds, e.g. \"2.10/3.40/3.20\"")
     odds.add_argument("--odds-ou", help="Over/Under 2.5 odds, e.g. \"1.85/1.95\"")
     odds.add_argument("--odds-btts", help="BTTS Yes/No odds, e.g. \"1.80/2.00\"")
+    odds.add_argument("--odds-dc", help="Double Chance odds 1X/12/X2, e.g. \"1.25/1.30/1.55\"")
+    odds.add_argument("--odds-ah", help="Asian-handicap line + home/away odds, "
+                                        "\"LINE:HOME/AWAY\". Use = for negative lines, "
+                                        "e.g. --odds-ah=-0.5:1.95/1.95")
 
     run = p.add_argument_group("run options")
     run.add_argument("--mode", choices=["mock", "live"], default="mock",
                      help="mock = offline/no keys (default); live = use .env toggles")
     run.add_argument("--bootstrap", type=int, default=None,
                      help="bootstrap samples for CIs (default: settings.bootstrap_n)")
+    run.add_argument("--calibrate", choices=["auto", "market", "none"], default="auto",
+                     help="Phase 5: auto = fitted artifact if present else raw; "
+                          "market = anchor 1X2 to the vig-free odds; none = off")
     run.add_argument("--sentiment-json", help="path to a sentiment_payload JSON to inject")
     run.add_argument("--out", "-o", help="output directory for JSON/MD/PNG")
     run.add_argument("--json-only", action="store_true", help="print JSON instead of Markdown")
     run.add_argument("--charts", action="store_true", help="also render PNG charts (needs matplotlib)")
     run.add_argument("--verbose", "-v", action="store_true", help="show debug logs")
+
+
+def _parse_ah(spec: str | None) -> tuple[float, float | None, float | None] | None:
+    """Parse ``"LINE:HOME/AWAY"`` (e.g. ``"-0.5:1.95/1.95"``) into
+    ``(line, home_odd, away_odd)``. Returns ``None`` for an empty/invalid spec."""
+    if not spec:
+        return None
+    from wm2026.edge import parse_odds
+
+    try:
+        line_part, odds_part = spec.split(":", 1)
+        line = float(line_part)
+    except ValueError:
+        return None
+    odds = parse_odds(odds_part) or []
+    home_odd = odds[0] if len(odds) > 0 else None
+    away_odd = odds[1] if len(odds) > 1 else None
+    return (line, home_odd, away_odd)
 
 
 def _build_cfg(args: argparse.Namespace):
@@ -115,6 +140,9 @@ def _cmd_predict(args: argparse.Namespace) -> int:
         odds_1x2=parse_odds(args.odds),
         odds_ou25=parse_odds(args.odds_ou),
         odds_btts=parse_odds(args.odds_btts),
+        odds_dc=parse_odds(args.odds_dc),
+        odds_ah=_parse_ah(args.odds_ah),
+        calibrate=args.calibrate,
     ))
     report = build_report(result)
 

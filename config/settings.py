@@ -147,6 +147,12 @@ class Settings(BaseSettings):
     bootstrap_n: int = 500
     bootstrap_xg_sigma: float = 0.15
 
+    # Phase-5 calibration. --calibrate market anchors the 1X2 toward the vig-free
+    # market consensus by this weight (0 = pure model, 1 = pure market). 0.5 is a
+    # neutral default; the market is the canonical calibrated forecaster
+    # (Constantinou & Fenton 2013).
+    calibration_market_weight: float = 0.5
+
     # MULTIFACTOR-02: external data-source toggles. Defaults assume the live
     # endpoints; flip to true for offline / CI runs.
     use_mock_openfootball: bool = False

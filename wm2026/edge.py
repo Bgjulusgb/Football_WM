@@ -44,6 +44,14 @@ class EdgeRow:
     kelly_pct: float | None       # full-Kelly stake as % of bankroll
     half_kelly_pct: float | None  # recommended (half-Kelly)
     action: str
+    # Conservative (risk-managed) staking: edge & half-Kelly recomputed on the
+    # bootstrap *lower bound* (p5) of the model probability instead of the point
+    # estimate. None when no confidence interval was supplied. A positive
+    # conservative edge means the bet survives the 5th-percentile of the model's
+    # own uncertainty — a much stronger value signal than the p50 edge alone.
+    model_p_lower: float | None = None
+    edge_pct_cons: float | None = None
+    half_kelly_cons: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -100,18 +108,29 @@ def evaluate_line(
     model_p: float,
     decimal_odd: float | None,
     fair_p: float | None = None,
+    *,
+    model_p_lower: float | None = None,
 ) -> EdgeRow:
-    """Build one :class:`EdgeRow`. ``decimal_odd=None`` ⇒ model-only row."""
+    """Build one :class:`EdgeRow`. ``decimal_odd=None`` ⇒ model-only row.
+
+    ``model_p_lower`` (the bootstrap p5 of this probability) enables the
+    conservative edge / half-Kelly columns.
+    """
     if decimal_odd is None or decimal_odd <= 1.0:
         return EdgeRow(
             market=market, selection=selection, model_p=round(model_p, 4),
             fair_p=round(fair_p, 4) if fair_p is not None else None,
             decimal_odd=None, edge_pct=None, kelly_pct=None,
             half_kelly_pct=None, action="—",
+            model_p_lower=round(model_p_lower, 4) if model_p_lower is not None else None,
         )
     edge = model_p * decimal_odd - 1.0
     full_kelly = kelly_fraction(model_p, decimal_odd)
     band = stake_band(edge)
+    edge_cons = half_kelly_cons = None
+    if model_p_lower is not None:
+        edge_cons = round((model_p_lower * decimal_odd - 1.0) * 100.0, 2)
+        half_kelly_cons = round(0.5 * kelly_fraction(model_p_lower, decimal_odd) * 100.0, 2)
     return EdgeRow(
         market=market,
         selection=selection,
@@ -122,7 +141,26 @@ def evaluate_line(
         kelly_pct=round(full_kelly * 100.0, 2),
         half_kelly_pct=round(0.5 * full_kelly * 100.0, 2),
         action=band,
+        model_p_lower=round(model_p_lower, 4) if model_p_lower is not None else None,
+        edge_pct_cons=edge_cons,
+        half_kelly_cons=half_kelly_cons,
     )
+
+
+def _lower(
+    ci: dict[str, Any] | None, key: str, *, complement: bool = False
+) -> float | None:
+    """5th-percentile of a market probability from the bootstrap CI triple.
+
+    For a *complement* selection (Under = 1−Over, No = 1−Yes) the conservative
+    lower bound is ``1 − p95`` of the positive side, not its own p5.
+    """
+    if not ci:
+        return None
+    triple = ci.get(key)
+    if not triple or len(triple) < 3:
+        return None
+    return float(1.0 - triple[2]) if complement else float(triple[0])
 
 
 def compute_edges(
@@ -131,12 +169,16 @@ def compute_edges(
     odds_1x2: list[float] | None = None,
     odds_ou25: list[float] | None = None,   # [over, under]
     odds_btts: list[float] | None = None,   # [yes, no]
+    odds_dc: list[float] | None = None,     # [1X, 12, X2] double chance
+    ci: dict[str, Any] | None = None,       # {market: [p5, p50, p95]} for conservative staking
 ) -> list[dict[str, Any]]:
     """Phase 6 — evaluate every market for which odds were supplied.
 
     ``markets`` is the blended model output (``home_win``/``draw``/``away_win``/
     ``over_25``/``btts`` …). Only lines with supplied odds yield an edge; the
     rest are still listed (model-only) so the report shows the full picture.
+    ``ci`` (the blended bootstrap intervals) unlocks the conservative edge /
+    half-Kelly columns — staking that survives the model's own p5 uncertainty.
     """
     rows: list[EdgeRow] = []
 
@@ -151,6 +193,7 @@ def compute_edges(
             "1X2", sel, markets.get(key, 0.0),
             odds_1x2[i] if odds_1x2 and len(odds_1x2) > i else None,
             fair_1x2[i] if fair_1x2 and len(fair_1x2) > i else None,
+            model_p_lower=_lower(ci, key),
         ))
 
     # Over/Under 2.5 ----------------------------------------------------------
@@ -162,11 +205,13 @@ def compute_edges(
         "O/U 2.5", "Over 2.5", over,
         odds_ou25[0] if odds_ou25 else None,
         fair_ou[0] if fair_ou else None,
+        model_p_lower=_lower(ci, "over_25"),
     ))
     rows.append(evaluate_line(
         "O/U 2.5", "Under 2.5", 1.0 - over,
         odds_ou25[1] if odds_ou25 and len(odds_ou25) > 1 else None,
         fair_ou[1] if fair_ou and len(fair_ou) > 1 else None,
+        model_p_lower=_lower(ci, "over_25", complement=True),
     ))
 
     # BTTS --------------------------------------------------------------------
@@ -178,13 +223,75 @@ def compute_edges(
         "BTTS", "Yes", btts,
         odds_btts[0] if odds_btts else None,
         fair_btts[0] if fair_btts else None,
+        model_p_lower=_lower(ci, "btts"),
     ))
     rows.append(evaluate_line(
         "BTTS", "No", 1.0 - btts,
         odds_btts[1] if odds_btts and len(odds_btts) > 1 else None,
         fair_btts[1] if fair_btts and len(fair_btts) > 1 else None,
+        model_p_lower=_lower(ci, "btts", complement=True),
     ))
 
+    # Double Chance (optional) ------------------------------------------------
+    # DC outcomes overlap, so there's no clean 3-way de-vig — we report the
+    # model probability + raw edge/Kelly only.
+    if odds_dc:
+        h = markets.get("home_win", 0.0)
+        d = markets.get("draw", 0.0)
+        a = markets.get("away_win", 0.0)
+        for i, (sel, p) in enumerate(
+            [("1X", h + d), ("12", h + a), ("X2", d + a)]
+        ):
+            rows.append(evaluate_line(
+                "Double Chance", sel, p,
+                odds_dc[i] if len(odds_dc) > i else None,
+            ))
+
+    return [r.as_dict() for r in rows]
+
+
+def evaluate_asian_handicap(
+    ah: dict[str, float],
+    *,
+    home_odd: float | None = None,
+    away_odd: float | None = None,
+) -> list[dict[str, Any]]:
+    """Two :class:`EdgeRow`s for an Asian-handicap line from its model shares.
+
+    ``ah`` is one entry of ``markets.asian_handicap`` (keys ``line``,
+    ``home_win``, ``push``, ``away_win`` as *expected shares*, plus the
+    ``*_prob_nopush`` display probabilities). The edge is the true push-aware
+    EV — ``EV(back @ odd o) = win·o + push − 1`` — while the displayed model_p
+    and the Kelly stake use the no-push-adjusted probability so the bet sits on
+    the same axis as a clean two-way market.
+    """
+    line = ah.get("line", 0.0)
+    sign = "+" if line >= 0 else ""
+    label = f"AH {sign}{line:g}"
+    rows: list[EdgeRow] = []
+    sides = [
+        ("Home", ah.get("home_win", 0.0), ah.get("home_prob_nopush", 0.0), home_odd),
+        ("Away", ah.get("away_win", 0.0), ah.get("away_prob_nopush", 0.0), away_odd),
+    ]
+    push = ah.get("push", 0.0)
+    for sel, win_share, prob_np, odd in sides:
+        if odd is None or odd <= 1.0:
+            rows.append(EdgeRow(
+                market=label, selection=sel, model_p=round(prob_np, 4),
+                fair_p=None, decimal_odd=None, edge_pct=None, kelly_pct=None,
+                half_kelly_pct=None, action="—",
+            ))
+            continue
+        ev = win_share * odd + push - 1.0       # push-aware expected value
+        full_kelly = kelly_fraction(prob_np, odd)   # desk approximation (push lowers variance)
+        rows.append(EdgeRow(
+            market=label, selection=sel, model_p=round(prob_np, 4),
+            fair_p=None, decimal_odd=round(odd, 3),
+            edge_pct=round(ev * 100.0, 2),
+            kelly_pct=round(full_kelly * 100.0, 2),
+            half_kelly_pct=round(0.5 * full_kelly * 100.0, 2),
+            action=stake_band(ev),
+        ))
     return [r.as_dict() for r in rows]
 
 
@@ -201,5 +308,6 @@ def best_value_pick(edge_rows: list[dict[str, Any]]) -> dict[str, Any] | None:
 
 __all__ = [
     "EdgeRow", "parse_odds", "devig", "kelly_fraction",
-    "evaluate_line", "compute_edges", "best_value_pick", "stake_band",
+    "evaluate_line", "compute_edges", "evaluate_asian_handicap",
+    "best_value_pick", "stake_band",
 ]

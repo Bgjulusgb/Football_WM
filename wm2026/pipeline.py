@@ -31,6 +31,7 @@ from data_sources.orchestrator import DataSourceOrchestrator
 from factors.base import FactorContext
 from factors.registry import get_active_factors
 from wm2026 import edge as edge_mod
+from wm2026 import markets as markets_mod
 from wm2026.context import apply_runtime_profile, build_context
 
 log = structlog.get_logger("wm2026.pipeline")
@@ -96,27 +97,61 @@ def _lambda_ci(xg: float, sigma: float) -> dict[str, float]:
     }
 
 
-def _maybe_calibrate(out: Any) -> dict[str, Any]:
-    """Phase 5 — best-effort isotonic/Platt calibration of the 1X2 line.
+def _maybe_calibrate(
+    out: Any,
+    *,
+    mode: str = "auto",
+    market: tuple[float, float, float] | None = None,
+    market_weight: float = 0.5,
+) -> dict[str, Any]:
+    """Phase 5 — calibrate the 1X2 line. Three modes:
 
-    Returns ``{"applied": bool, "note": str, "calibrated": {...}|None}``. When
-    no fitted artifact exists (the default for a fresh clone), ``applied`` is
-    False and the report falls back to the raw, bootstrap-bounded probabilities.
+    * ``auto`` (default) — apply a fitted isotonic/Platt artifact if one exists,
+      else report raw probabilities (a fresh clone has no WC-2026 history).
+    * ``market`` — anchor toward the vig-free market consensus (the canonical
+      well-calibrated football forecaster; no historical data needed). This is
+      the per-match calibration Claude can drive in Cowork by researching odds.
+    * ``none`` — never calibrate.
+
+    Returns ``{"applied": bool, "method": str|None, "note": str,
+    "calibrated": {home_win,draw,away_win}|None}``.
     """
-    raw = {
-        "home_win": out.home_win_prob,
-        "draw": out.draw_prob,
-        "away_win": out.away_win_prob,
-    }
-    try:
-        from analysis import calibration as calib
+    from analysis import calibration as calib
 
+    raw = (out.home_win_prob, out.draw_prob, out.away_win_prob)
+
+    if mode == "none":
+        return {"applied": False, "method": None,
+                "note": "Calibration disabled (--calibrate none).", "calibrated": None}
+
+    if mode == "market":
+        cal = calib.market_anchor(*raw, market, weight=market_weight)
+        if cal is not None:
+            return {
+                "applied": True,
+                "method": "market-anchor",
+                "note": (
+                    f"Anchored toward the vig-free market consensus "
+                    f"(weight {market_weight:.2f}; Constantinou & Fenton 2013 — "
+                    f"closing odds are well calibrated). Compounds with the "
+                    f"market factor; lower factor_weight_market to avoid."
+                ),
+                "calibrated": {
+                    "home_win": round(cal["home"], 4),
+                    "draw": round(cal["draw"], 4),
+                    "away_win": round(cal["away"], 4),
+                },
+            }
+        return {"applied": False, "method": None,
+                "note": "Market calibration requested but no usable odds were supplied.",
+                "calibrated": None}
+
+    # mode == "auto" (or unknown) → fitted artifact if present, else raw.
+    try:
         iso = calib.load_isotonic()
         platt = calib.load_platt()
         artifact = iso or platt
-        calibrated = calib.apply(
-            artifact, raw["home_win"], raw["draw"], raw["away_win"]
-        )
+        calibrated = calib.apply(artifact, raw[0], raw[1], raw[2])
         if calibrated is None:
             raise FileNotFoundError("no usable calibration artifact")
         return {
@@ -134,10 +169,10 @@ def _maybe_calibrate(out: Any) -> dict[str, Any]:
             "applied": False,
             "method": None,
             "note": (
-                "No fitted calibration artifact (no WC-2026 history yet). "
-                "Raw model probabilities are reported; fit isotonic/Platt on "
-                "WC 2022 + EURO 2024 + Copa 2024 as a prior set, noting the "
-                "transfer. See analysis/calibration.py."
+                "No fitted calibration artifact (no WC-2026 history yet). Raw "
+                "model probabilities are reported. Either fit one offline "
+                "(scripts/fit_calibration_offline.py on WC 2022 + EURO 2024 + "
+                "Copa 2024) or pass --calibrate market to anchor to the odds."
             ),
             "calibrated": None,
         }
@@ -180,6 +215,9 @@ async def run_prediction(
     odds_1x2: list[float] | None = None,
     odds_ou25: list[float] | None = None,
     odds_btts: list[float] | None = None,
+    odds_dc: list[float] | None = None,
+    odds_ah: tuple[float, float | None, float | None] | None = None,
+    calibrate: str = "auto",
 ) -> dict[str, Any]:
     """Run all phases for one match config and return the raw ``result`` dict.
 
@@ -237,18 +275,35 @@ async def run_prediction(
         market_prior=None,
     )
 
-    # Score-probability matrix (primary model at the final λ) for the heatmap.
+    # Blended score-probability matrix (all 3 models at the final λ) — used for
+    # BOTH the heatmap and every derived market (Phase-1 math upgrade). Because
+    # the markets are linear functionals of the matrix, deriving them here keeps
+    # Double-Chance / Asian-Handicap / totals exactly consistent with the
+    # blended headline 1X2 + O/U numbers.
+    from models_ml.poisson_goals import blend_score_matrix
+
+    derived_markets: dict[str, Any] = {}
+    score_matrix: list[list[float]] = []
     try:
-        matrix = predictor.poisson.predict_matrix(out.home_xg, out.away_xg)
+        matrix = blend_score_matrix(predictor.models, out.home_xg, out.away_xg)
         score_matrix = [[float(matrix[i][j]) for j in range(matrix.shape[1])]
                         for i in range(matrix.shape[0])]
+        derived_markets = markets_mod.derive_all(
+            matrix,
+            p1x2=(out.home_win_prob, out.draw_prob, out.away_win_prob),
+        )
     except Exception:  # pragma: no cover - defensive
         score_matrix = []
 
-    # Phase 5 — calibration. Graceful: only transforms when a historical artifact
-    # has been fitted (scripts/… → models_ml/artifacts/calibration_*.json). With
-    # no WC-2026 history yet we report raw probabilities + a transfer caveat.
-    calibration = _maybe_calibrate(out)
+    # Phase 5 — calibration. mode=auto uses a fitted artifact if present, else
+    # raw; mode=market anchors to the vig-free consensus (ctx.market_implied was
+    # de-vigged from the config odds or --odds in build_context/run_prediction).
+    calibration = _maybe_calibrate(
+        out,
+        mode=(calibrate or "auto").lower(),
+        market=ctx.market_implied,
+        market_weight=getattr(settings, "calibration_market_weight", 0.5),
+    )
 
     # Phase 6 — market edge / value detection.
     blended = {
@@ -258,9 +313,22 @@ async def run_prediction(
         "over_25": out.over_25,
         "btts": out.btts,
     }
+    # Blended bootstrap CI → conservative (p5) edge / half-Kelly columns.
+    ci_blended = (out.features.get("confidence_intervals") or {}).get("blended")
     edge_rows = edge_mod.compute_edges(
         blended, odds_1x2=odds_1x2, odds_ou25=odds_ou25, odds_btts=odds_btts,
+        odds_dc=odds_dc, ci=ci_blended,
     )
+    # Optional Asian-handicap value line (model probs from the score matrix).
+    if odds_ah is not None:
+        ah_line, ah_home_odd, ah_away_odd = odds_ah
+        try:
+            ah_model = markets_mod.asian_handicap(matrix, float(ah_line))
+            edge_rows.extend(edge_mod.evaluate_asian_handicap(
+                ah_model, home_odd=ah_home_odd, away_odd=ah_away_odd,
+            ))
+        except Exception:  # pragma: no cover - defensive
+            log.warning("asian_handicap_edge_failed", line=ah_line)
     best_value = edge_mod.best_value_pick(edge_rows)
 
     # Phase 7 — validation.
@@ -278,6 +346,7 @@ async def run_prediction(
         "ensemble": ensemble,
         "signals": signals,
         "score_matrix": score_matrix,
+        "derived_markets": derived_markets,
         "calibration": calibration,
         "provenance": provenance,
         "edges": edge_rows,

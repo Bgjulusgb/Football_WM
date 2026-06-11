@@ -136,24 +136,136 @@ def _collect_pairs(rows: Iterable) -> dict[str, list[tuple[float, float]]]:
     return out
 
 
+def _pav(values: list[float]) -> list[float]:
+    """Pool-Adjacent-Violators → non-decreasing isotonic fit (unit weights).
+
+    The classic O(n) stack form: walk left→right, pooling a new point into the
+    previous block whenever it would violate monotonicity, replacing both with
+    their mean. Pure Python — this is the sklearn-free isotonic fit.
+    """
+    stack: list[list[float]] = []                 # each block = [sum, count]
+    for v in values:
+        block = [float(v), 1.0]
+        while stack and stack[-1][0] / stack[-1][1] >= block[0] / block[1]:
+            prev = stack.pop()
+            block = [prev[0] + block[0], prev[1] + block[1]]
+        stack.append(block)
+    out: list[float] = []
+    for s, c in stack:
+        out.extend([s / c] * int(round(c)))
+    return out
+
+
+def _isotonic_pav_curve(xs: list[float], ys: list[float]) -> IsotonicCurve:
+    """Pure-Python isotonic curve via PAV — the no-sklearn fallback for
+    :func:`_fit_isotonic`. Collapses equal-x knots and clamps to [0, 1]."""
+    if len(xs) < 5:
+        return IsotonicCurve()
+    order = sorted(range(len(xs)), key=lambda i: xs[i])
+    xs_s = [float(xs[i]) for i in order]
+    fitted = _pav([float(ys[i]) for i in order])
+    acc: dict[float, list[float]] = {}
+    for x, y in zip(xs_s, fitted):
+        a = acc.setdefault(x, [0.0, 0.0])
+        a[0] += y
+        a[1] += 1.0
+    xs_u = sorted(acc)
+    ys_u = [min(1.0, max(0.0, acc[x][0] / acc[x][1])) for x in xs_u]
+    if len(xs_u) < 2:
+        return IsotonicCurve()
+    return IsotonicCurve(x=xs_u, y=ys_u)
+
+
+def _platt_newton(ps: list[float], ys: list[float], *, iters: int = 100) -> PlattCurve:
+    """Pure-Python Platt scaling: logistic fit of label ~ logit(p) by Newton /
+    IRLS (2 params, ridge-stabilised). The no-sklearn fallback for
+    :func:`_fit_platt`. Degenerate (single-class) input → identity curve."""
+    labels = {float(y) for y in ys}
+    if labels <= {0.0} or labels <= {1.0}:
+        return PlattCurve()
+    eps = 1e-6
+    zs = []
+    for p in ps:
+        pc = min(1 - eps, max(eps, float(p)))
+        zs.append(math.log(pc / (1 - pc)))
+    a, b = 1.0, 0.0
+    for _ in range(iters):
+        g_a = g_b = h_aa = h_ab = h_bb = 0.0
+        for z, y in zip(zs, ys):
+            t = max(-35.0, min(35.0, a * z + b))
+            pr = 1.0 / (1.0 + math.exp(-t))
+            d = pr - float(y)
+            g_a += d * z
+            g_b += d
+            w = pr * (1.0 - pr)
+            h_aa += w * z * z
+            h_ab += w * z
+            h_bb += w
+        h_aa += 1e-6
+        h_bb += 1e-6
+        det = h_aa * h_bb - h_ab * h_ab
+        if abs(det) < 1e-12:
+            break
+        da = (h_bb * g_a - h_ab * g_b) / det
+        db = (h_aa * g_b - h_ab * g_a) / det
+        a -= da
+        b -= db
+        if abs(da) + abs(db) < 1e-9:
+            break
+    return PlattCurve(a=a, b=b)
+
+
+def market_anchor(
+    home_p: float, draw_p: float, away_p: float,
+    market: tuple[float, float, float] | list[float] | None,
+    weight: float = 0.5,
+) -> dict[str, float] | None:
+    """Per-match calibration toward the **vig-free market consensus**.
+
+    The bookmaker's closing line is the canonical *well-calibrated* football
+    forecaster (Constantinou & Fenton 2013 — odds are well calibrated even where
+    not fully efficient). With no fitted historical artifact, anchoring the
+    model's 1X2 toward the de-vigged market is a principled, data-free
+    calibration: ``weight ∈ [0, 1]`` (0 = pure model, 1 = pure market),
+    renormalised to Σ=1. Returns ``None`` if the market triple is unusable.
+
+    NB: compounds with the MarketOddsFactor (which already tilts λ toward the
+    market). Use as an explicit mode; lower ``factor_weight_market`` if you do
+    not want the market to inform both λ and the final calibration.
+    """
+    if not market or len(market) < 3:
+        return None
+    mh, md, ma = float(market[0]), float(market[1]), float(market[2])
+    if min(mh, md, ma) < 0 or (mh + md + ma) <= 0:
+        return None
+    w = max(0.0, min(1.0, float(weight)))
+    out = {
+        "home": (1 - w) * home_p + w * mh,
+        "draw": (1 - w) * draw_p + w * md,
+        "away": (1 - w) * away_p + w * ma,
+    }
+    s = sum(out.values())
+    return {k: v / s for k, v in out.items()} if s > 0 else None
+
+
 def _fit_isotonic(pairs: list[tuple[float, float]]) -> IsotonicCurve:
-    if not pairs:
+    if len(pairs) < 5:
         return IsotonicCurve()
     try:
         import numpy as np
         from sklearn.isotonic import IsotonicRegression
+
+        xs = np.asarray([p for p, _ in pairs], dtype=float)
+        ys = np.asarray([y for _, y in pairs], dtype=float)
+        iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+        iso.fit(xs, ys)
+        # Eine kompakte Repraesentation: 50 Knoten gleichmaessig im Wertebereich.
+        grid = np.linspace(xs.min(), xs.max(), 50)
+        return IsotonicCurve(x=[float(v) for v in grid], y=[float(v) for v in iso.predict(grid)])
     except Exception as exc:
-        log.warning("isotonic_sklearn_missing", error=str(exc))
-        return IsotonicCurve()
-    xs = np.asarray([p for p, _ in pairs], dtype=float)
-    ys = np.asarray([y for _, y in pairs], dtype=float)
-    if len(xs) < 5:
-        return IsotonicCurve()
-    iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
-    iso.fit(xs, ys)
-    # Eine kompakte Repraesentation: 50 Knoten gleichmaessig im Wertebereich.
-    grid = np.linspace(xs.min(), xs.max(), 50)
-    return IsotonicCurve(x=[float(v) for v in grid], y=[float(v) for v in iso.predict(grid)])
+        # Pure-Python PAV fallback — calibration fits with core deps, no sklearn.
+        log.info("isotonic_pure_fallback", reason=str(exc))
+        return _isotonic_pav_curve([p for p, _ in pairs], [y for _, y in pairs])
 
 
 def _fit_platt(pairs: list[tuple[float, float]]) -> PlattCurve:
@@ -162,19 +274,21 @@ def _fit_platt(pairs: list[tuple[float, float]]) -> PlattCurve:
     try:
         import numpy as np
         from sklearn.linear_model import LogisticRegression
+
+        eps = 1e-6
+        ps = np.clip(np.asarray([p for p, _ in pairs], dtype=float), eps, 1 - eps)
+        ys = np.asarray([y for _, y in pairs], dtype=float)
+        z = np.log(ps / (1 - ps)).reshape(-1, 1)
+        if ys.min() == ys.max():
+            return PlattCurve()  # entartet, keine 0+1 mix
+        lr = LogisticRegression(C=1e6, solver="lbfgs", max_iter=200).fit(z, ys.astype(int))
+        a = float(lr.coef_[0][0])
+        b = float(lr.intercept_[0])
+        return PlattCurve(a=a, b=b)
     except Exception as exc:
-        log.warning("platt_sklearn_missing", error=str(exc))
-        return PlattCurve()
-    eps = 1e-6
-    ps = np.clip(np.asarray([p for p, _ in pairs], dtype=float), eps, 1 - eps)
-    ys = np.asarray([y for _, y in pairs], dtype=float)
-    z = np.log(ps / (1 - ps)).reshape(-1, 1)
-    if ys.min() == ys.max():
-        return PlattCurve()  # entartet, keine 0+1 mix
-    lr = LogisticRegression(C=1e6, solver="lbfgs", max_iter=200).fit(z, ys.astype(int))
-    a = float(lr.coef_[0][0])
-    b = float(lr.intercept_[0])
-    return PlattCurve(a=a, b=b)
+        # Pure-Python Newton/IRLS fallback — no sklearn.
+        log.info("platt_pure_fallback", reason=str(exc))
+        return _platt_newton([p for p, _ in pairs], [y for _, y in pairs])
 
 
 def fit_calibrators(rows: Iterable) -> tuple[CalibrationArtifact, CalibrationArtifact]:
@@ -357,5 +471,6 @@ __all__ = [
     "load_isotonic",
     "load_platt",
     "apply",
+    "market_anchor",
     "transform_intervals",
 ]
