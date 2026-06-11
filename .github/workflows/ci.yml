@@ -43,7 +43,8 @@ jobs:
             tests/test_overrides.py \
             tests/test_report_html.py \
             tests/test_xg_estimator.py \
-            tests/test_tournament.py
+            tests/test_tournament.py \
+            tests/test_model_tuning.py
 
       - name: Debug harness — every function on mock data
         run: python debug.py -q

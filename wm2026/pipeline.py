@@ -346,7 +346,7 @@ async def run_prediction(
         except Exception as exc:  # pragma: no cover - defensive
             log.warning("mle_xg_failed", error=str(exc))
     predictor = MatchPredictor(
-        rho=0.1,
+        rho=getattr(settings, "dixon_coles_rho", 0.1),
         goal_model=settings.goal_model,
         negbin_size=settings.negbin_size,
         combine=settings.goal_model_combine,

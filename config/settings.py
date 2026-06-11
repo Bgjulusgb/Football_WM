@@ -156,6 +156,10 @@ class Settings(BaseSettings):
     # Halftime λ share for the HT/FT market (first-half goals are slightly rarer).
     ht_lambda_share: float = 0.45
 
+    # Dixon-Coles low-score correction ρ. 0.1 is the shipped default; tune offline
+    # against RPS with scripts/tune_models_offline.py and set the best value here.
+    dixon_coles_rho: float = 0.1
+
     # Dixon-Coles MLE base-xG estimator (analysis/xg_estimator.py). OFF by default
     # so the naive YAML base xG (and thus the default output) is unchanged; turn
     # on to fit attack/defence + home advantage from time-decayed history.
