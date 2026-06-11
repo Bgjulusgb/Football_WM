@@ -83,8 +83,9 @@ in `prompts/WM2026_MASTER_PROMPT.md` (Phase 8).
 | Accuracy metrics (Brier/LogLoss/RPS) | `analysis/backtesting.py` |
 | Calibration (isotonic/Platt/market) | `analysis/calibration.py` (+ `scripts/fit_calibration_offline.py`) |
 | A new factor | `factors/<name>_factor.py` + `factors/registry.py` + a weight in `config/settings.py` |
-| CLI flags | `wm2026/cli.py` |
-| Report JSON/Markdown | `wm2026/report.py` |
+| CLI flags / `research` subcommand | `wm2026/cli.py` |
+| Cowork overrides injection | `wm2026/context.py` (`apply_overrides`, `overrides_template`) |
+| Report JSON/Markdown / HTML | `wm2026/report.py` · `wm2026/report_html.py` |
 | Roadmap / next math | `verbesserungsplan.md` |
 
 ## Don't

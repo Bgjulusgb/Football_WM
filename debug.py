@@ -215,6 +215,9 @@ def run_pipeline() -> None:
     report = build_report(result)
     check("build_report (json keys)", lambda: len(report["json"]))
     check("build_report (markdown len)", lambda: f"{len(report['markdown'])} chars")
+    check("run_prediction (overrides_applied)", lambda: result.get("overrides_applied"))
+    from wm2026.report_html import build_html
+    check("build_html (self-contained)", lambda: f"{len(build_html(result, report['json']))} chars HTML")
 
 
 def main() -> int:

@@ -39,7 +39,9 @@ jobs:
             tests/test_edge_conservative.py \
             tests/test_backtesting_rps.py \
             tests/test_bivariate_poisson.py \
-            tests/test_calibration_offline.py
+            tests/test_calibration_offline.py \
+            tests/test_overrides.py \
+            tests/test_report_html.py
 
       - name: Debug harness — every function on mock data
         run: python debug.py -q

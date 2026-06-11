@@ -1,11 +1,14 @@
-"""Optional Phase-8 charts (factor tornado + score heatmap) as PNGs.
+"""Optional Phase-8 charts (factor tornado + score heatmap).
 
-Imported lazily by the CLI only when ``--charts`` is passed, so matplotlib stays
-an *optional* dependency (``pip install -e .[viz]``). Every function degrades to
-a no-op list if matplotlib is missing.
+Imported lazily by the CLI only when ``--charts`` is passed (PNG files) or by the
+HTML report (in-memory base64), so matplotlib stays an *optional* dependency
+(``pip install -e .[viz]``). Every entry point degrades to a no-op / ``None`` if
+matplotlib is missing.
 """
 from __future__ import annotations
 
+import base64
+import io
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +20,7 @@ def _matplotlib():
     return plt
 
 
-def render_tornado(result: dict[str, Any], path: Path) -> Path:
-    plt = _matplotlib()
+def _tornado_fig(result: dict[str, Any], plt):
     ensemble = result["ensemble"]
     eff = {s["name"]: s.get("effective_weight", 0.0)
            for s in ensemble.breakdown_payload.get("signals", [])}
@@ -41,13 +43,10 @@ def render_tornado(result: dict[str, Any], path: Path) -> Path:
     ax.set_xlabel("← away favour      weighted Δ(home − away)      home favour →")
     ax.set_title("Factor Tornado")
     fig.tight_layout()
-    fig.savefig(path, dpi=120)
-    plt.close(fig)
-    return path
+    return fig
 
 
-def render_heatmap(result: dict[str, Any], path: Path) -> Path:
-    plt = _matplotlib()
+def _heatmap_fig(result: dict[str, Any], plt):
     matrix = result.get("score_matrix") or []
     n = min(7, len(matrix))
     grid = [[matrix[i][j] for j in range(n)] for i in range(n)]
@@ -68,6 +67,20 @@ def render_heatmap(result: dict[str, Any], path: Path) -> Path:
                     fontsize=8)
     fig.colorbar(im, ax=ax, label="probability")
     fig.tight_layout()
+    return fig
+
+
+def render_tornado(result: dict[str, Any], path: Path) -> Path:
+    plt = _matplotlib()
+    fig = _tornado_fig(result, plt)
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
+    return path
+
+
+def render_heatmap(result: dict[str, Any], path: Path) -> Path:
+    plt = _matplotlib()
+    fig = _heatmap_fig(result, plt)
     fig.savefig(path, dpi=120)
     plt.close(fig)
     return path
@@ -76,11 +89,32 @@ def render_heatmap(result: dict[str, Any], path: Path) -> Path:
 def render_charts(result: dict[str, Any], out_dir: Path, match_id: str) -> list[Path]:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    written = [
+    return [
         render_tornado(result, out_dir / f"{match_id}_tornado.png"),
         render_heatmap(result, out_dir / f"{match_id}_heatmap.png"),
     ]
-    return written
 
 
-__all__ = ["render_charts", "render_tornado", "render_heatmap"]
+def chart_b64(result: dict[str, Any]) -> dict[str, str | None]:
+    """In-memory base64 PNGs for embedding in the HTML report. Returns
+    ``{"tornado": ..., "heatmap": ...}`` with ``None`` values when matplotlib is
+    unavailable or a chart can't be built — the HTML report then falls back to
+    its ASCII renderings, so it always renders with core deps only."""
+    try:
+        plt = _matplotlib()
+    except Exception:
+        return {"tornado": None, "heatmap": None}
+    out: dict[str, str | None] = {}
+    for name, builder in (("tornado", _tornado_fig), ("heatmap", _heatmap_fig)):
+        try:
+            fig = builder(result, plt)
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", dpi=110)
+            plt.close(fig)
+            out[name] = base64.b64encode(buf.getvalue()).decode("ascii")
+        except Exception:
+            out[name] = None
+    return out
+
+
+__all__ = ["render_charts", "render_tornado", "render_heatmap", "chart_b64"]

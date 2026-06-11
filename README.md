@@ -88,13 +88,18 @@ flowchart LR
 
 ## 🖥️ CLI
 ```bash
-python -m wm2026.cli predict --match <yaml> [OPTIONS]   # volle Pipeline
-python -m wm2026.cli list                               # Match-Configs auflisten
+python -m wm2026.cli predict  --match <yaml> [OPTIONS]   # volle Pipeline
+python -m wm2026.cli research  --home A --away B          # Cowork-Auftrag + Overrides-Template
+python -m wm2026.cli list                                # Match-Configs auflisten
 ```
 `--mode live|mock` (Default **live**) · `--odds "H/D/A"` · `--odds-ou "O/U"` ·
 `--odds-btts "Y/N"` · `--odds-dc "1X/12/X2"` · `--odds-ah=-0.5:1.95/1.95` ·
-`--calibrate auto|market|none` · `--bootstrap N` · `--out DIR` · `--charts` ·
-`--json-only`. Nach `pip install .` auch als `wm2026 …`.
+`--calibrate auto|market|none` · **`--format markdown|json|html`** ·
+**`--overrides-json FILE`** (Claude-recherchierte Werte) · `--bootstrap N` ·
+`--out DIR` · `--charts`. Nach `pip install .` auch als `wm2026 …`.
+
+**Cowork-Loop:** `wm2026 research …` → Template ausfüllen (Web Search) →
+`wm2026 predict … --overrides-json filled.json --format html`.
 
 ## 📚 Mehr
 - **[`prompt.md`](prompt.md)** — Ein-Prompt-Einstieg für Claude Cowork.

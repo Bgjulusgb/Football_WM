@@ -32,7 +32,7 @@ from factors.base import FactorContext
 from factors.registry import get_active_factors
 from wm2026 import edge as edge_mod
 from wm2026 import markets as markets_mod
-from wm2026.context import apply_runtime_profile, build_context
+from wm2026.context import apply_overrides, apply_runtime_profile, build_context
 
 log = structlog.get_logger("wm2026.pipeline")
 
@@ -196,8 +196,8 @@ def _validate(
     if n_avail < 5:
         warnings.append(f"only {n_avail} factors available (low coverage)")
     modes = {p.get("mode") for p in provenance.values() if isinstance(p, dict)}
-    live_or_cache = {"live", "cache"} & modes
-    if not live_or_cache:
+    non_mock = {"live", "cache", "research"} & modes
+    if not non_mock:
         warnings.append("all data sources are mock — predictions are illustrative, not live")
     if ensemble.confidence < 0.5:
         warnings.append(
@@ -286,6 +286,7 @@ async def run_prediction(
     odds_dc: list[float] | None = None,
     odds_ah: tuple[float, float | None, float | None] | None = None,
     calibrate: str = "auto",
+    overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run all phases for one match config and return the raw ``result`` dict.
 
@@ -320,6 +321,12 @@ async def run_prediction(
 
     # Phase 1 — data collection.
     provenance = await _populate(ctx)
+
+    # Phase 1.5 — inject Claude-researched overrides over the connectors' fallbacks
+    # (Cowork v2). Re-read provenance so the `research` stamps reach the report.
+    overrides_applied = apply_overrides(ctx, overrides)
+    if overrides_applied:
+        provenance = dict(ctx.provenance)
 
     # Phase 2/3 — factor decomposition (+ injected sentiment).
     signals = await _signals(ctx)
@@ -432,6 +439,7 @@ async def run_prediction(
         "best_value": best_value,
         "warnings": warnings,
         "claude_tasks": claude_tasks,
+        "overrides_applied": overrides_applied,
         "bootstrap_n": boot,
     }
 
