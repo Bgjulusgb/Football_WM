@@ -47,12 +47,26 @@ nur die Korrelation (mehr Unentschieden) steigt; `λ₃→0` ⇒ unabhängiges P
 `MODEL_NAMES` + `DEFAULT_BLEND_WEIGHTS` aufnehmen, sobald die Blend-Gewichte
 (2.4) auf einem Backtest-Set neu getunt sind — das ändert sonst alle Default-Outputs.
 
-### 2.3 Offline-Kalibrierungs-Fit (das `data/training/`-Loch schließen)
-**Problem:** `analysis/calibration.py` fittet nur aus der DB (Admin-Pfad); ein
-frischer Clone hat nie ein Artefakt. **Lösung:** `scripts/fit_calibration_offline.py`
-liest eine CSV `(p_home,p_draw,p_away,home_score,away_score)` aus WC2022 +
-EURO2024 + Copa2024, ruft `fit_calibrators(rows)` und schreibt die Artefakte —
-Transfer explizit gekennzeichnet. Dann greift Phase 5 automatisch.
+### 2.3 Kalibrierung aktiviert — ✅ erledigt (zwei Wege, beide ohne sklearn)
+**Problem war:** `analysis/calibration.py` fittete nur aus der DB *und* brauchte
+sklearn; ein frischer Clone hatte nie ein Artefakt → Phase 5 lief leer.
+**Jetzt:**
+1. **Pure-Python-Fit (kern-deps):** PAV-Isotonic (`_pav`/`_isotonic_pav_curve`)
+   + Newton/IRLS-Platt (`_platt_newton`) als sklearn-freie Fallbacks →
+   `fit_calibrators` liefert echte Kurven mit nur numpy/scipy.
+2. **Offline-Fit-Script:** `scripts/fit_calibration_offline.py` liest eine CSV
+   `(home_win_prob,draw_prob,away_win_prob,home_score,away_score)` aus einem
+   *berühmten Prior-Set* (WC2022 + EURO2024 + Copa2024), fittet, schreibt die
+   Artefakte und zeigt den Brier-vorher/nachher. Danach greift `--calibrate auto`.
+3. **Markt-Anker (pro Spiel, ohne Historie):** `calibration.market_anchor` zieht
+   die 1X2 zur vig-freien Markt-Konsens-Quote — dem kanonisch *gut kalibrierten*
+   Fußball-Forecaster (Constantinou & Fenton 2013). `--calibrate market`. Das ist
+   der „pro Spiel im Claude-Workflow"-Pfad: Claude recherchiert die Quoten, das
+   Modell kalibriert dagegen. Kompoundet mit dem Markt-Faktor (Doku-Hinweis).
+
+**Famous-Referenzwerte (verankert):** Markt = bester kalibrierter Forecaster
+(Constantinou & Fenton 2013); Dixon-Coles-Zeitdecay `ξ=0.0065` (Original, in
+Halb-Wochen) ≈ 107-Tage-Halbwertszeit für 2.1.
 
 ### 2.4 Blend-Gewichte + ρ via Optuna tunen
 **Problem:** `DEFAULT_BLEND_WEIGHTS` (0.4/0.3/0.3) und ρ=0.1 sind gesetzt, nicht

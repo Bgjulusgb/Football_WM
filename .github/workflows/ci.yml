@@ -37,7 +37,8 @@ jobs:
             tests/test_markets.py \
             tests/test_edge_conservative.py \
             tests/test_backtesting_rps.py \
-            tests/test_bivariate_poisson.py
+            tests/test_bivariate_poisson.py \
+            tests/test_calibration_offline.py
 
       - name: Smoke — predict a sample fixture (mock, all markets)
         run: |

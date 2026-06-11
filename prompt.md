@@ -27,9 +27,14 @@ developer guide in [`CLAUDE.md`](CLAUDE.md); the math roadmap in
 >    python -m wm2026.cli predict --home "<<HOME>>" --away "<<AWAY>>" \
 >      --stage <<STAGE>> --odds "<<2.10/3.40/3.20>>" --odds-ou "<<1.85/1.95>>" \
 >      --odds-btts "<<1.80/2.00>>" --odds-dc "<<1.28/1.30/1.55>>" \
->      --out reports/
+>      --calibrate market --out reports/
 >    ```
 >    Für echte Daten: `cp .env.example .env`, `USE_MOCK_*=false` + Keys, `--mode live`.
+>    **Kalibrierung pro Spiel:** `--calibrate market` ankert die 1X2 an die
+>    vig-freie Konsens-Quote (der kanonisch gut kalibrierte Forecaster,
+>    Constantinou & Fenton 2013). Hast du ein Prior-Set (WC2022/EURO2024/Copa2024
+>    als CSV)? → `python scripts/fit_calibration_offline.py hist.csv`, dann
+>    greift `--calibrate auto` automatisch.
 > 3. **Report lesen & erklären:** JSON + Markdown aus `reports/`. Gib mir:
 >    - Executive Summary (Pick + Stake-Level + Top-3-Faktoren + Confidence-Ampel)
 >    - die **Edge-Tabelle inkl. der `(p5)`-Spalten** — eine Edge zählt nur, wenn

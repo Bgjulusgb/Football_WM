@@ -26,6 +26,13 @@ From a config: `--match config/matches/<group>/<slug>.yaml` (list them with
 `python -m wm2026.cli list`). For real data: `--mode live` after `cp .env.example .env`
 and setting `USE_MOCK_*=false` + keys. Omit any `--odds-*` you don't have.
 
+**Calibration (Phase 5):** add `--calibrate market` to anchor the 1X2 toward the
+vig-free consensus odds (the canonical well-calibrated forecaster, Constantinou &
+Fenton 2013) — the per-match calibration when you have no fitted history. If you
+*do* have a prior-tournament CSV `(home_win_prob,draw_prob,away_win_prob,home_score,away_score)`,
+run `python scripts/fit_calibration_offline.py hist.csv` once; then `--calibrate auto`
+applies the fitted isotonic/Platt artifact (works without sklearn).
+
 Note: Asian-handicap **negative** lines must use `=`, e.g. `--odds-ah=-0.5:1.95/1.95`
 (argparse treats a leading `-` as a flag otherwise).
 

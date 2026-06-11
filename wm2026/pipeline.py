@@ -97,27 +97,61 @@ def _lambda_ci(xg: float, sigma: float) -> dict[str, float]:
     }
 
 
-def _maybe_calibrate(out: Any) -> dict[str, Any]:
-    """Phase 5 — best-effort isotonic/Platt calibration of the 1X2 line.
+def _maybe_calibrate(
+    out: Any,
+    *,
+    mode: str = "auto",
+    market: tuple[float, float, float] | None = None,
+    market_weight: float = 0.5,
+) -> dict[str, Any]:
+    """Phase 5 — calibrate the 1X2 line. Three modes:
 
-    Returns ``{"applied": bool, "note": str, "calibrated": {...}|None}``. When
-    no fitted artifact exists (the default for a fresh clone), ``applied`` is
-    False and the report falls back to the raw, bootstrap-bounded probabilities.
+    * ``auto`` (default) — apply a fitted isotonic/Platt artifact if one exists,
+      else report raw probabilities (a fresh clone has no WC-2026 history).
+    * ``market`` — anchor toward the vig-free market consensus (the canonical
+      well-calibrated football forecaster; no historical data needed). This is
+      the per-match calibration Claude can drive in Cowork by researching odds.
+    * ``none`` — never calibrate.
+
+    Returns ``{"applied": bool, "method": str|None, "note": str,
+    "calibrated": {home_win,draw,away_win}|None}``.
     """
-    raw = {
-        "home_win": out.home_win_prob,
-        "draw": out.draw_prob,
-        "away_win": out.away_win_prob,
-    }
-    try:
-        from analysis import calibration as calib
+    from analysis import calibration as calib
 
+    raw = (out.home_win_prob, out.draw_prob, out.away_win_prob)
+
+    if mode == "none":
+        return {"applied": False, "method": None,
+                "note": "Calibration disabled (--calibrate none).", "calibrated": None}
+
+    if mode == "market":
+        cal = calib.market_anchor(*raw, market, weight=market_weight)
+        if cal is not None:
+            return {
+                "applied": True,
+                "method": "market-anchor",
+                "note": (
+                    f"Anchored toward the vig-free market consensus "
+                    f"(weight {market_weight:.2f}; Constantinou & Fenton 2013 — "
+                    f"closing odds are well calibrated). Compounds with the "
+                    f"market factor; lower factor_weight_market to avoid."
+                ),
+                "calibrated": {
+                    "home_win": round(cal["home"], 4),
+                    "draw": round(cal["draw"], 4),
+                    "away_win": round(cal["away"], 4),
+                },
+            }
+        return {"applied": False, "method": None,
+                "note": "Market calibration requested but no usable odds were supplied.",
+                "calibrated": None}
+
+    # mode == "auto" (or unknown) → fitted artifact if present, else raw.
+    try:
         iso = calib.load_isotonic()
         platt = calib.load_platt()
         artifact = iso or platt
-        calibrated = calib.apply(
-            artifact, raw["home_win"], raw["draw"], raw["away_win"]
-        )
+        calibrated = calib.apply(artifact, raw[0], raw[1], raw[2])
         if calibrated is None:
             raise FileNotFoundError("no usable calibration artifact")
         return {
@@ -135,10 +169,10 @@ def _maybe_calibrate(out: Any) -> dict[str, Any]:
             "applied": False,
             "method": None,
             "note": (
-                "No fitted calibration artifact (no WC-2026 history yet). "
-                "Raw model probabilities are reported; fit isotonic/Platt on "
-                "WC 2022 + EURO 2024 + Copa 2024 as a prior set, noting the "
-                "transfer. See analysis/calibration.py."
+                "No fitted calibration artifact (no WC-2026 history yet). Raw "
+                "model probabilities are reported. Either fit one offline "
+                "(scripts/fit_calibration_offline.py on WC 2022 + EURO 2024 + "
+                "Copa 2024) or pass --calibrate market to anchor to the odds."
             ),
             "calibrated": None,
         }
@@ -183,6 +217,7 @@ async def run_prediction(
     odds_btts: list[float] | None = None,
     odds_dc: list[float] | None = None,
     odds_ah: tuple[float, float | None, float | None] | None = None,
+    calibrate: str = "auto",
 ) -> dict[str, Any]:
     """Run all phases for one match config and return the raw ``result`` dict.
 
@@ -260,10 +295,15 @@ async def run_prediction(
     except Exception:  # pragma: no cover - defensive
         score_matrix = []
 
-    # Phase 5 — calibration. Graceful: only transforms when a historical artifact
-    # has been fitted (scripts/… → models_ml/artifacts/calibration_*.json). With
-    # no WC-2026 history yet we report raw probabilities + a transfer caveat.
-    calibration = _maybe_calibrate(out)
+    # Phase 5 — calibration. mode=auto uses a fitted artifact if present, else
+    # raw; mode=market anchors to the vig-free consensus (ctx.market_implied was
+    # de-vigged from the config odds or --odds in build_context/run_prediction).
+    calibration = _maybe_calibrate(
+        out,
+        mode=(calibrate or "auto").lower(),
+        market=ctx.market_implied,
+        market_weight=getattr(settings, "calibration_market_weight", 0.5),
+    )
 
     # Phase 6 — market edge / value detection.
     blended = {

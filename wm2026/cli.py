@@ -63,6 +63,9 @@ def _add_predict_args(p: argparse.ArgumentParser) -> None:
                      help="mock = offline/no keys (default); live = use .env toggles")
     run.add_argument("--bootstrap", type=int, default=None,
                      help="bootstrap samples for CIs (default: settings.bootstrap_n)")
+    run.add_argument("--calibrate", choices=["auto", "market", "none"], default="auto",
+                     help="Phase 5: auto = fitted artifact if present else raw; "
+                          "market = anchor 1X2 to the vig-free odds; none = off")
     run.add_argument("--sentiment-json", help="path to a sentiment_payload JSON to inject")
     run.add_argument("--out", "-o", help="output directory for JSON/MD/PNG")
     run.add_argument("--json-only", action="store_true", help="print JSON instead of Markdown")
@@ -139,6 +142,7 @@ def _cmd_predict(args: argparse.Namespace) -> int:
         odds_btts=parse_odds(args.odds_btts),
         odds_dc=parse_odds(args.odds_dc),
         odds_ah=_parse_ah(args.odds_ah),
+        calibrate=args.calibrate,
     ))
     report = build_report(result)
 

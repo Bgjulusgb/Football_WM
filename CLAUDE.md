@@ -52,6 +52,11 @@ in `prompts/WM2026_MASTER_PROMPT.md` (Phase 8).
   neighbours" identity is the canonical correctness test.
 - Conservative staking (`wm2026/edge.py`): edge & half-Kelly recomputed on the
   bootstrap **p5** (lower bound). Complement selections (Under/No) use `1 − p95`.
+- Calibration (`analysis/calibration.py`, Phase 5) fits **without sklearn** —
+  pure-Python PAV isotonic + Newton Platt fallbacks. Three modes via
+  `--calibrate`: `auto` (fitted artifact if present, else raw), `market`
+  (`market_anchor` → shrink 1X2 to the vig-free consensus, the per-match path),
+  `none`. Fit an artifact offline with `scripts/fit_calibration_offline.py`.
 
 ## Conventions
 - **No new runtime deps** for core features — `numpy`/`scipy` are the ceiling.
@@ -69,6 +74,7 @@ in `prompts/WM2026_MASTER_PROMPT.md` (Phase 8).
 | Edge / Kelly / staking | `wm2026/edge.py` (+ `tests/test_edge_conservative.py`) |
 | Goal models / blend / bootstrap | `models_ml/poisson_goals.py` |
 | Accuracy metrics (Brier/LogLoss/RPS) | `analysis/backtesting.py` |
+| Calibration (isotonic/Platt/market) | `analysis/calibration.py` (+ `scripts/fit_calibration_offline.py`) |
 | A new factor | `factors/<name>_factor.py` + `factors/registry.py` + a weight in `config/settings.py` |
 | CLI flags | `wm2026/cli.py` |
 | Report JSON/Markdown | `wm2026/report.py` |

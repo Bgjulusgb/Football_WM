@@ -115,6 +115,23 @@ def test_double_chance_and_asian_handicap_edges():
     assert any(m.startswith("AH ") for m in markets)
 
 
+def test_market_calibration_mode_anchors_to_odds():
+    cfg = synth_config(home_team="Italy", away_team="Ghana",
+                       home_xg=1.6, away_xg=1.0)
+    result = _run(cfg, odds_1x2=[1.80, 3.50, 4.50], calibrate="market")
+    cal = result["calibration"]
+    assert cal["applied"] is True
+    assert cal["method"] == "market-anchor"
+    c = cal["calibrated"]
+    assert abs(c["home_win"] + c["draw"] + c["away_win"] - 1.0) < 1e-6
+
+
+def test_calibrate_none_disables():
+    cfg = synth_config(home_team="Italy", away_team="Ghana")
+    result = _run(cfg, odds_1x2=[1.80, 3.50, 4.50], calibrate="none")
+    assert result["calibration"]["applied"] is False
+
+
 def test_factor_unavailability_renormalises():
     # No external data + no sentiment → some factors go unavailable, but the
     # ensemble must still return a proper distribution (re-normalisation).

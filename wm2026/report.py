@@ -190,7 +190,13 @@ def build_markdown(result: dict[str, Any], js: dict[str, Any]) -> str:
         L.append("- **Value pick:** none (no odds supplied or edge < 2%)")
     L.append(f"- **Confidence:** {_confidence_gauge(ensemble.confidence, result['warnings'])} "
              f"(ensemble {ensemble.confidence:.2f}, {js['factors_used']}/{js['factors_total']} factors live)")
-    if not js["calibration"].get("applied"):
+    if js["calibration"].get("applied"):
+        cal = js["calibration"].get("calibrated") or {}
+        method = js["calibration"].get("method", "")
+        if cal:
+            L.append(f"- **Calibration ({method}):** {home} {_pct(cal.get('home_win'))} / "
+                     f"Draw {_pct(cal.get('draw'))} / {away} {_pct(cal.get('away_win'))}")
+    else:
         L.append("- **Calibration:** raw probabilities (no historical artifact — see note in JSON)")
     L.append("")
 
