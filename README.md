@@ -24,22 +24,99 @@ schickt sie dir verarbeitet zurück. **Forschung/Bildung — keine Wett-Empfehlu
 
 ---
 
-## 🤖 So startest du mit KI (der einfachste Weg)
+## 🛠️ Setup
 
-> Du brauchst nur: einen Claude-Zugang (z. B. claude.ai) + Zugriff auf dieses Repo.
+> **TL;DR:** Du brauchst Python 3.11+, einmal `pip install -r requirements.txt`,
+> **fertig**. Alles andere ist optional — der Workflow degradiert sauber.
 
-### Schritt 1 — Einmal vorbereiten
+### 1 · Pflicht (= das musst du wirklich)
 
 ```bash
 git clone https://github.com/bgjulusgb/football_wm.git
 cd football_wm
 pip install -r requirements.txt
+python debug.py          # Verify: ✅ jede Funktion auf Mock-Daten getestet
 ```
 
-Das war's. Keine API-Keys, keine Datenbank, **kein** Account bei einem
-Buchmacher. Nur Python (3.11+) und Internet.
+Das sind die **Core-Deps** (`numpy`, `scipy`, `httpx`, `PyYAML`, `pydantic`,
+`structlog`). Damit läuft die **komplette Pipeline**: alle 15+ Märkte, Edge-/
+Kelly-Berechnung, sklearn-freie Kalibrierung, Turnier-Monte-Carlo, HTML-Report.
 
-### Schritt 2 — Claude öffnen und den Prompt schicken
+### 2 · Optionale Python-Extras (nur wenn du das Feature willst)
+
+```bash
+pip install ".[viz]"        # PNG-Charts (Tornado + Heatmap) → empfohlen
+pip install ".[tui]"        # bunte Terminal-Tabellen (rich) → reine Kosmetik
+pip install ".[tune]"       # Offline-RPS-Tuning (Optuna)
+pip install ".[stats]"      # exaktes GLM-Poisson + sklearn-Kalibrierung
+pip install ".[sentiment]"  # Reddit-Stimmung scoren (VADER + TextBlob)
+pip install ".[full]"       # alles auf einmal
+```
+
+| Extra | wofür | brauchst du's? |
+|---|---|---|
+| `[viz]` | matplotlib → PNG-Charts + in HTML eingebettet | ⭐ empfohlen für anschauliche Reports |
+| `[tui]` | rich → bunte CLI-Tabellen | nice-to-have |
+| `[tune]` | Optuna → `scripts/tune_models_offline.py` | nur wenn du Modell-Params optimierst |
+| `[stats]` | statsmodels + sklearn → exakter GLM-Fit | optional — pure-Python-Fallback aktiv |
+| `[sentiment]` | VADER + TextBlob → Reddit-Sentiment | optional — Sentiment-Faktor neutralisiert sonst |
+| `[cache]` | SQLAlchemy + aiosqlite → Cross-Run-Cache | nur Power-User |
+| `[full]` | alles obige | wenn dir Platz egal ist |
+
+Fehlt ein Extra, **fällt der Workflow sauber zurück** (sklearn-fehlt → pure-Python-Isotonic, matplotlib-fehlt → ASCII-Heatmap im Markdown, Optuna-fehlt → klare Fehlermeldung statt Crash).
+
+### 3 · Live-Modus mit echten API-Daten (optional)
+
+Für `--mode live` mit eigenen Buchmacher-Quoten / Reddit / NVIDIA-LLM:
+
+```bash
+cp .env.example .env
+# .env aufmachen, USE_MOCK_*=false setzen und die Keys eintragen, die du hast
+```
+
+Welche Keys was tun — du brauchst **keinen einzigen davon**, das Programm läuft
+auch ohne (degradiert die jeweilige Quelle auf Mock):
+
+| Key in `.env` | wofür | wo bekommen |
+|---|---|---|
+| `ODDS_API_KEY` | Live-Quoten (1X2, O/U, BTTS) | the-odds-api.com (free tier) |
+| `FOOTBALL_DATA_API_KEY` | Fixtures Cross-Check | football-data.org (free tier) |
+| `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` | Reddit-Stimmung | reddit.com/prefs/apps |
+| `NVIDIA_API_KEY` | LLM-Sentiment-Scoring (Aspect-Sentiment) | build.nvidia.com |
+| `TWITTER_BEARER_TOKEN` | X-Crawler | developer.twitter.com |
+
+> Alternative ohne Keys: Quoten direkt per Flag mitgeben:
+> `--odds "2.10/3.40/3.20" --odds-ou "1.85/1.95"`.
+> **Empfohlen wenn du Claude im Cowork einsetzt** — er recherchiert die Werte
+> selbst per Web Search.
+
+### 4 · Claude-Seite (Skills, Hooks, Cowork-Toggles)
+
+| | Status | Was tun? |
+|---|---|---|
+| **Skill `predict-match`** (`.claude/skills/predict-match/`) | ✅ schon im Repo | **nichts** — Claude Code lädt ihn automatisch, wenn du nach einer Prediction fragst |
+| **SessionStart-Hook** (Web-Sessions installieren Deps automatisch) | ⚠️ nicht angelegt | optional — sag mir „leg den SessionStart-Hook an", falls du in Web-Sessions automatisch `pip install` willst |
+| **Web Search** in claude.ai | manuell | ☑️ Toggle aktivieren — Claude braucht es zum Quoten-Recherchieren |
+| **Code Execution / File Creation** in claude.ai | manuell | ☑️ aktivieren — Claude muss `wm2026 predict` ausführen + `overrides.json` schreiben können |
+| **Memory / Past Chats** in claude.ai | manuell | optional — netter Kontext |
+
+### 5 · Geht alles? (Verify)
+
+```bash
+python debug.py            # 63 Funktions-Checks, alles ✅
+pytest tests/test_wm2026_pipeline.py -q       # End-to-end Mock-Test
+python -m wm2026.cli list  # listet die 104 WM-Match-Configs
+```
+
+Wenn das durchläuft, ist alles eingerichtet.
+
+---
+
+## 🤖 So startest du mit KI (der einfachste Weg)
+
+> Setup (siehe oben) muss einmal durchgelaufen sein.
+
+### Schritt 1 — Claude öffnen und den Prompt schicken
 
 Geh zu **Claude.ai** (oder Claude Code / Cowork) und füge **diesen Prompt** in
 den Chat — die Stellen `<<...>>` durch dein Spiel ersetzen:
@@ -83,7 +160,7 @@ Keine Edge > 10 % ohne Sanity-Check. Mock-Daten sind illustrativ, nicht live.
 Mehr Details (Methodik, Faktoren, Limits) findest du in
 [`prompt.md`](prompt.md) und im [Master-Prompt](prompts/WM2026_MASTER_PROMPT.md).
 
-### Schritt 3 — Claude liefert
+### Schritt 2 — Claude liefert
 
 Du bekommst zurück:
 - die **Headline-1X2-Prognose** + erwartete Tore (λ) mit Konfidenzintervall,
