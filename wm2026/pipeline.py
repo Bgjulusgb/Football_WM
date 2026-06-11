@@ -359,6 +359,8 @@ async def run_prediction(
         derived_markets = markets_mod.derive_all(
             matrix,
             p1x2=(out.home_win_prob, out.draw_prob, out.away_win_prob),
+            lam_home=out.home_xg, lam_away=out.away_xg,
+            models=predictor.models, ht_share=settings.ht_lambda_share,
         )
     except Exception:  # pragma: no cover - defensive
         score_matrix = []

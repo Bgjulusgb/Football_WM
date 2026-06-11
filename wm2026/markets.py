@@ -202,6 +202,104 @@ def odd_even_goals(matrix: Any) -> dict[str, float]:
     return {"odd": odd, "even": even}
 
 
+def _lambdas_from_matrix(M: np.ndarray) -> tuple[float, float]:
+    """Expected goals per side = Σ k·(marginal_k), read straight off the matrix."""
+    idx = np.arange(M.shape[0], dtype=float)
+    return float((M.sum(axis=1) * idx).sum()), float((M.sum(axis=0) * idx).sum())
+
+
+def winning_margin(matrix: Any) -> dict[str, float]:
+    """Result by margin: home/away by exactly 1, by 2+, or draw (sums to 1)."""
+    M = _as_array(matrix)
+    d = _margins(M.shape[0])
+    return {
+        "home_by_1": float((M * (d == 1)).sum()),
+        "home_by_2plus": float((M * (d >= 2)).sum()),
+        "draw": float((M * (d == 0)).sum()),
+        "away_by_1": float((M * (d == -1)).sum()),
+        "away_by_2plus": float((M * (d <= -2)).sum()),
+    }
+
+
+def multi_goal_bands(matrix: Any) -> dict[str, float]:
+    """Total-goals bands 0-1 / 2-3 / 4-6 / 7+ (a common "multigoals" market)."""
+    M = _as_array(matrix)
+    t = _totals(M.shape[0])
+    return {
+        "0-1": float((M * (t <= 1)).sum()),
+        "2-3": float((M * ((t >= 2) & (t <= 3))).sum()),
+        "4-6": float((M * ((t >= 4) & (t <= 6))).sum()),
+        "7+": float((M * (t >= 7)).sum()),
+    }
+
+
+def exact_total_goals(matrix: Any) -> dict[int, float]:
+    """Full P(total goals = k) distribution (k = 0 .. 2·max_goals). Sums to 1."""
+    M = _as_array(matrix)
+    t = _totals(M.shape[0])
+    return {k: float((M * (t == k)).sum()) for k in range(int(t.max()) + 1)}
+
+
+def first_goal(matrix: Any, lam_home: float, lam_away: float) -> dict[str, float]:
+    """Which side scores first. Time-to-first-goal modelled as competing
+    exponentials with rates ∝ (λ_home, λ_away); ``none`` is the no-goal mass
+    ``P(0-0)`` read off the matrix so it stays consistent with the scoreline."""
+    M = _as_array(matrix)
+    p_none = float(M[0, 0])
+    total = float(lam_home) + float(lam_away)
+    if total <= 1e-9:
+        return {"home": 0.0, "away": 0.0, "none": 1.0}
+    p_goal = 1.0 - p_none
+    return {
+        "home": float(lam_home) / total * p_goal,
+        "away": float(lam_away) / total * p_goal,
+        "none": p_none,
+    }
+
+
+def ht_ft(
+    lam_home: float,
+    lam_away: float,
+    *,
+    ht_share: float = 0.45,
+    models: dict[str, Any] | None = None,
+    weights: dict[str, float] | None = None,
+) -> dict[str, float]:
+    """Half-time / full-time 3×3 grid — 9 outcomes keyed ``"H/H"``, ``"H/D"`` …
+
+    Splits each side's λ into a first-half share ``ht_share·λ`` and a second-half
+    remainder, builds the per-half **blended** score matrices (same model blend as
+    the headline), and convolves the two halves (independence of halves) into the
+    joint (HT result, FT result). FT goals = HT goals + 2nd-half goals.
+    """
+    from models_ml.poisson_goals import DixonColesPoisson, blend_score_matrix
+
+    if models is None:
+        models = {"poisson": DixonColesPoisson(rho=0.1)}
+        weights = {"poisson": 1.0}
+    s = max(0.0, min(1.0, float(ht_share)))
+    m1 = np.asarray(blend_score_matrix(models, s * lam_home, s * lam_away, weights))
+    m2 = np.asarray(blend_score_matrix(models, (1 - s) * lam_home, (1 - s) * lam_away, weights))
+    n = m1.shape[0]
+
+    def _res(h: int, a: int) -> str:
+        return "H" if h > a else ("A" if a > h else "D")
+
+    out = {f"{ht}/{ft}": 0.0 for ht in "HDA" for ft in "HDA"}
+    for i1 in range(n):
+        for j1 in range(n):
+            p1 = float(m1[i1, j1])
+            if p1 <= 0.0:
+                continue
+            ht = _res(i1, j1)
+            for i2 in range(n):
+                for j2 in range(n):
+                    p = p1 * float(m2[i2, j2])
+                    if p > 0.0:
+                        out[f"{ht}/{_res(i1 + i2, j1 + j2)}"] += p
+    return out
+
+
 # ── convenience aggregator (used by the pipeline / report) ────────────────────
 def derive_all(
     matrix: Any,
@@ -209,13 +307,19 @@ def derive_all(
     *,
     ah_lines: Sequence[float] | None = None,
     total_lines: Sequence[float] | None = None,
+    lam_home: float | None = None,
+    lam_away: float | None = None,
+    models: dict[str, Any] | None = None,
+    ht_share: float = 0.45,
 ) -> dict[str, Any]:
     """Compute every derived market in one pass.
 
     ``p1x2`` (the possibly market-blended 1X2 triple) seeds Double Chance / DNB
     so they stay consistent with the headline 1X2 line; when omitted it's read
     off the matrix. ``ah_lines`` / ``total_lines`` default to a sensible spread
-    of main + quarter lines.
+    of main + quarter lines. ``lam_home``/``lam_away``/``models`` feed the
+    λ-dependent markets (first-goal, HT/FT); when omitted λ is read off the
+    matrix marginals and HT/FT falls back to a single Dixon-Coles model.
     """
     M = _as_array(matrix)
     if p1x2 is None:
@@ -227,6 +331,11 @@ def derive_all(
         away = float(p1x2.get("away", 0.0))
     else:
         home, draw, away = (float(x) for x in p1x2)
+
+    if lam_home is None or lam_away is None:
+        lh, la = _lambdas_from_matrix(M)
+        lam_home = lh if lam_home is None else lam_home
+        lam_away = la if lam_away is None else lam_away
 
     if ah_lines is None:
         ah_lines = (-2.0, -1.5, -1.0, -0.75, -0.5, -0.25, 0.0,
@@ -244,6 +353,11 @@ def derive_all(
         "clean_sheet": clean_sheet(M),
         "win_to_nil": win_to_nil(M),
         "odd_even": odd_even_goals(M),
+        "winning_margin": winning_margin(M),
+        "multi_goal_bands": multi_goal_bands(M),
+        "exact_total_goals": exact_total_goals(M),
+        "first_goal": first_goal(M, lam_home, lam_away),
+        "ht_ft": ht_ft(lam_home, lam_away, ht_share=ht_share, models=models),
     }
 
 
@@ -257,5 +371,10 @@ __all__ = [
     "clean_sheet",
     "win_to_nil",
     "odd_even_goals",
+    "winning_margin",
+    "multi_goal_bands",
+    "exact_total_goals",
+    "first_goal",
+    "ht_ft",
     "derive_all",
 ]

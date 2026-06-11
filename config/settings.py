@@ -153,6 +153,9 @@ class Settings(BaseSettings):
     # (Constantinou & Fenton 2013).
     calibration_market_weight: float = 0.5
 
+    # Halftime λ share for the HT/FT market (first-half goals are slightly rarer).
+    ht_lambda_share: float = 0.45
+
     # MULTIFACTOR-02: external data-source toggles. Defaults assume the live
     # endpoints; flip to true for offline / CI runs.
     use_mock_openfootball: bool = False

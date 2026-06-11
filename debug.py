@@ -98,7 +98,12 @@ def run_markets() -> None:
     check("clean_sheet", lambda: {k: round(v, 3) for k, v in mk.clean_sheet(M).items()})
     check("win_to_nil", lambda: {k: round(v, 3) for k, v in mk.win_to_nil(M).items()})
     check("odd_even_goals", lambda: {k: round(v, 3) for k, v in mk.odd_even_goals(M).items()})
-    check("derive_all (keys)", lambda: sorted(mk.derive_all(M).keys()))
+    check("winning_margin (Σ=1)", lambda: round(sum(mk.winning_margin(M).values()), 6))
+    check("multi_goal_bands (Σ=1)", lambda: round(sum(mk.multi_goal_bands(M).values()), 6))
+    check("exact_total_goals (Σ=1)", lambda: round(sum(mk.exact_total_goals(M).values()), 6))
+    check("first_goal", lambda: {k: round(v, 3) for k, v in mk.first_goal(M, 1.7, 1.1).items()})
+    check("ht_ft (Σ=1)", lambda: round(sum(mk.ht_ft(1.7, 1.1).values()), 6))
+    check("derive_all (keys)", lambda: len(mk.derive_all(M).keys()))
 
 
 # ── 2 · edge / Kelly ──────────────────────────────────────────────────────────
