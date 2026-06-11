@@ -1,0 +1,1027 @@
+{
+  "schema_version": "1.2",
+  "match_id": "wm2026_groupa_cze_vs_rsa",
+  "model_version": "wm2026-workflow-1.1",
+  "predicted_at": "2026-06-11T19:44:54.610364+00:00",
+  "mode": "mock",
+  "fixture": {
+    "home": "Czech Republic",
+    "away": "South Africa",
+    "stage": "group_stage",
+    "kickoff_utc": "2026-06-18T18:00:00Z",
+    "venue": "BMO Field, Toronto"
+  },
+  "lambda_home": {
+    "p5": 1.275,
+    "p50": 1.692,
+    "p95": 2.11
+  },
+  "lambda_away": {
+    "p5": 0.755,
+    "p50": 1.003,
+    "p95": 1.25
+  },
+  "xg": {
+    "home": 1.692,
+    "away": 1.003
+  },
+  "markets": {
+    "1x2": {
+      "home": 0.5405,
+      "draw": 0.2212,
+      "away": 0.2384
+    },
+    "over_under": {
+      "over_05": 0.9438,
+      "over_15": 0.7325,
+      "over_25": 0.4995,
+      "over_35": 0.2841
+    },
+    "btts": {
+      "yes": 0.4957,
+      "no": 0.5043
+    },
+    "correct_score_top5": [
+      {
+        "score": "1-0",
+        "p": 0.126
+      },
+      {
+        "score": "1-1",
+        "p": 0.1033
+      },
+      {
+        "score": "2-1",
+        "p": 0.0972
+      },
+      {
+        "score": "2-0",
+        "p": 0.0969
+      },
+      {
+        "score": "0-1",
+        "p": 0.0793
+      }
+    ],
+    "recommended_bet": null,
+    "bet_probability": null
+  },
+  "derived_markets": {
+    "double_chance": {
+      "1X": 0.7616,
+      "12": 0.7788,
+      "X2": 0.4595
+    },
+    "draw_no_bet": {
+      "home": 0.6939,
+      "away": 0.3061
+    },
+    "asian_handicap": [
+      {
+        "line": -2.0,
+        "home_win": 0.13,
+        "push": 0.1615,
+        "away_win": 0.7085,
+        "home_prob_nopush": 0.1551,
+        "away_prob_nopush": 0.8449
+      },
+      {
+        "line": -1.5,
+        "home_win": 0.2915,
+        "push": 0.0,
+        "away_win": 0.7085,
+        "home_prob_nopush": 0.2915,
+        "away_prob_nopush": 0.7085
+      },
+      {
+        "line": -1.0,
+        "home_win": 0.2915,
+        "push": 0.2489,
+        "away_win": 0.4595,
+        "home_prob_nopush": 0.3881,
+        "away_prob_nopush": 0.6119
+      },
+      {
+        "line": -0.75,
+        "home_win": 0.416,
+        "push": 0.1245,
+        "away_win": 0.4595,
+        "home_prob_nopush": 0.4751,
+        "away_prob_nopush": 0.5249
+      },
+      {
+        "line": -0.5,
+        "home_win": 0.5405,
+        "push": 0.0,
+        "away_win": 0.4595,
+        "home_prob_nopush": 0.5405,
+        "away_prob_nopush": 0.4595
+      },
+      {
+        "line": -0.25,
+        "home_win": 0.5405,
+        "push": 0.1106,
+        "away_win": 0.349,
+        "home_prob_nopush": 0.6077,
+        "away_prob_nopush": 0.3923
+      },
+      {
+        "line": 0.0,
+        "home_win": 0.5405,
+        "push": 0.2212,
+        "away_win": 0.2384,
+        "home_prob_nopush": 0.6939,
+        "away_prob_nopush": 0.3061
+      },
+      {
+        "line": 0.25,
+        "home_win": 0.651,
+        "push": 0.1106,
+        "away_win": 0.2384,
+        "home_prob_nopush": 0.732,
+        "away_prob_nopush": 0.268
+      },
+      {
+        "line": 0.5,
+        "home_win": 0.7616,
+        "push": 0.0,
+        "away_win": 0.2384,
+        "home_prob_nopush": 0.7616,
+        "away_prob_nopush": 0.2384
+      },
+      {
+        "line": 0.75,
+        "home_win": 0.7616,
+        "push": 0.0775,
+        "away_win": 0.1609,
+        "home_prob_nopush": 0.8256,
+        "away_prob_nopush": 0.1744
+      },
+      {
+        "line": 1.0,
+        "home_win": 0.7616,
+        "push": 0.1549,
+        "away_win": 0.0834,
+        "home_prob_nopush": 0.9013,
+        "away_prob_nopush": 0.0987
+      },
+      {
+        "line": 1.5,
+        "home_win": 0.9166,
+        "push": 0.0,
+        "away_win": 0.0834,
+        "home_prob_nopush": 0.9166,
+        "away_prob_nopush": 0.0834
+      },
+      {
+        "line": 2.0,
+        "home_win": 0.9166,
+        "push": 0.0593,
+        "away_win": 0.0241,
+        "home_prob_nopush": 0.9743,
+        "away_prob_nopush": 0.0257
+      }
+    ],
+    "totals": [
+      {
+        "line": 0.5,
+        "over": 0.938,
+        "push": 0.0,
+        "under": 0.062,
+        "over_prob_nopush": 0.938,
+        "under_prob_nopush": 0.062
+      },
+      {
+        "line": 1.5,
+        "over": 0.7325,
+        "push": 0.0,
+        "under": 0.2675,
+        "over_prob_nopush": 0.7325,
+        "under_prob_nopush": 0.2675
+      },
+      {
+        "line": 2.5,
+        "over": 0.4995,
+        "push": 0.0,
+        "under": 0.5005,
+        "over_prob_nopush": 0.4995,
+        "under_prob_nopush": 0.5005
+      },
+      {
+        "line": 3.5,
+        "over": 0.2841,
+        "push": 0.0,
+        "under": 0.7159,
+        "over_prob_nopush": 0.2841,
+        "under_prob_nopush": 0.7159
+      },
+      {
+        "line": 4.5,
+        "over": 0.1383,
+        "push": 0.0,
+        "under": 0.8617,
+        "over_prob_nopush": 0.1383,
+        "under_prob_nopush": 0.8617
+      }
+    ],
+    "team_total_home": [
+      {
+        "side": "home",
+        "line": 0.5,
+        "over": 0.8064,
+        "push": 0.0,
+        "under": 0.1936
+      },
+      {
+        "side": "home",
+        "line": 1.5,
+        "over": 0.4967,
+        "push": 0.0,
+        "under": 0.5033
+      },
+      {
+        "side": "home",
+        "line": 2.5,
+        "over": 0.2405,
+        "push": 0.0,
+        "under": 0.7595
+      }
+    ],
+    "team_total_away": [
+      {
+        "side": "away",
+        "line": 0.5,
+        "over": 0.6273,
+        "push": 0.0,
+        "under": 0.3727
+      },
+      {
+        "side": "away",
+        "line": 1.5,
+        "over": 0.2651,
+        "push": 0.0,
+        "under": 0.7349
+      },
+      {
+        "side": "away",
+        "line": 2.5,
+        "over": 0.0838,
+        "push": 0.0,
+        "under": 0.9162
+      }
+    ],
+    "clean_sheet": {
+      "home": 0.3727,
+      "away": 0.1936
+    },
+    "win_to_nil": {
+      "home": 0.3107,
+      "away": 0.1316
+    },
+    "odd_even": {
+      "odd": 0.5168,
+      "even": 0.4832
+    },
+    "winning_margin": {
+      "home_by_1": 0.2489,
+      "home_by_2plus": 0.2915,
+      "draw": 0.2212,
+      "away_by_1": 0.1549,
+      "away_by_2plus": 0.0834
+    },
+    "multi_goal_bands": {
+      "0-1": 0.2675,
+      "2-3": 0.4484,
+      "4-6": 0.2635,
+      "7+": 0.0206
+    },
+    "exact_total_goals": {
+      "0": 0.062,
+      "1": 0.2055,
+      "2": 0.233,
+      "3": 0.2154,
+      "4": 0.1458,
+      "5": 0.0802,
+      "6": 0.0375,
+      "7": 0.0145,
+      "8": 0.0046,
+      "9": 0.0012,
+      "10": 0.0003,
+      "11": 0.0,
+      "12": 0.0
+    },
+    "first_goal": {
+      "home": 0.589,
+      "away": 0.349,
+      "none": 0.062
+    },
+    "ht_ft": {
+      "H/H": 0.3345,
+      "H/D": 0.0505,
+      "H/A": 0.0147,
+      "D/H": 0.1722,
+      "D/D": 0.1339,
+      "D/A": 0.0867,
+      "A/H": 0.0287,
+      "A/D": 0.0503,
+      "A/A": 0.1285
+    }
+  },
+  "per_model": {
+    "poisson": {
+      "home_win": 0.5461,
+      "draw": 0.2185,
+      "away_win": 0.2354,
+      "over_05": 0.9438,
+      "over_15": 0.7385,
+      "over_25": 0.5043,
+      "over_35": 0.2835,
+      "btts": 0.5049
+    },
+    "negbin": {
+      "home_win": 0.5331,
+      "draw": 0.2161,
+      "away_win": 0.2509,
+      "over_05": 0.93,
+      "over_15": 0.7128,
+      "over_25": 0.4883,
+      "over_35": 0.2855,
+      "btts": 0.4684
+    },
+    "glm_poisson": {
+      "home_win": 0.5403,
+      "draw": 0.23,
+      "away_win": 0.2297,
+      "over_05": 0.9381,
+      "over_15": 0.7443,
+      "over_25": 0.5043,
+      "over_35": 0.2835,
+      "btts": 0.5106
+    }
+  },
+  "confidence_intervals": {
+    "poisson": {
+      "home_win": [
+        0.43052563930530335,
+        0.5514446731555885,
+        0.6527656692297069
+      ],
+      "draw": [
+        0.18388860719293987,
+        0.21749472872983505,
+        0.25441629125770193
+      ],
+      "away_win": [
+        0.1594186484098937,
+        0.22785630054894762,
+        0.3289115965252183
+      ],
+      "over_15": [
+        0.6465610394825503,
+        0.7418381987332323,
+        0.8126776943950613
+      ],
+      "over_25": [
+        0.39202077938249474,
+        0.5079909165672388,
+        0.6085111250314089
+      ],
+      "over_35": [
+        0.19145134465927294,
+        0.28688411433553473,
+        0.3836785411949056
+      ],
+      "btts": [
+        0.4092575608562203,
+        0.5002071703951633,
+        0.5768077508224061
+      ]
+    },
+    "negbin": {
+      "home_win": [
+        0.42184706731772637,
+        0.5325619676470916,
+        0.6297350098253018
+      ],
+      "draw": [
+        0.18547142147973947,
+        0.21543769808814245,
+        0.2536735456618469
+      ],
+      "away_win": [
+        0.17315942203107643,
+        0.25188466770016715,
+        0.34397075616647876
+      ],
+      "over_15": [
+        0.6203536901352497,
+        0.7107668621565413,
+        0.780952748876386
+      ],
+      "over_25": [
+        0.37949459665899415,
+        0.48568081811105124,
+        0.5798704590369721
+      ],
+      "over_35": [
+        0.19432044856097883,
+        0.2832862599380007,
+        0.3736240367738219
+      ],
+      "btts": [
+        0.3702535689691707,
+        0.46116584036335345,
+        0.5388287627344756
+      ]
+    },
+    "glm_poisson": {
+      "home_win": [
+        0.4200600059676116,
+        0.5479153317945755,
+        0.6503649781284637
+      ],
+      "draw": [
+        0.19179550730654382,
+        0.2268615648509544,
+        0.2635301213932152
+      ],
+      "away_win": [
+        0.15204567532113916,
+        0.2213605505565451,
+        0.32600870573564183
+      ],
+      "over_15": [
+        0.6523100906388899,
+        0.748004680386823,
+        0.82428798993685
+      ],
+      "over_25": [
+        0.39202861164925284,
+        0.5090301877732565,
+        0.6198193370998996
+      ],
+      "over_35": [
+        0.1914160866266841,
+        0.2873654843633464,
+        0.3963363236572193
+      ],
+      "btts": [
+        0.41525238675290577,
+        0.5085668654513267,
+        0.5922403592616085
+      ]
+    },
+    "blended": {
+      "home_win": [
+        0.42478237770772265,
+        0.5447210590947356,
+        0.6451362640780125
+      ],
+      "draw": [
+        0.18673552151306094,
+        0.21968767037366307,
+        0.2569276166195994
+      ],
+      "away_win": [
+        0.16132898856962216,
+        0.2331160856965927,
+        0.3325584771807235
+      ],
+      "over_15": [
+        0.640423550025262,
+        0.7343667422563023,
+        0.8066432994019954
+      ],
+      "over_25": [
+        0.38826527424547197,
+        0.5016096683921879,
+        0.603311388853625
+      ],
+      "over_35": [
+        0.19230149842000804,
+        0.28594916902461803,
+        0.3844595246072746
+      ],
+      "btts": [
+        0.3993548110591111,
+        0.4910026799024693,
+        0.5700438369277876
+      ]
+    }
+  },
+  "ensemble_confidence": 0.5885,
+  "factors_used": 11,
+  "factors_total": 20,
+  "factors": [
+    {
+      "name": "elo_strength",
+      "home_strength": 1.14,
+      "away_strength": 0.86,
+      "weight": 0.2935,
+      "effective_weight": 0.2341,
+      "confidence": 0.85,
+      "available": true,
+      "kind": "tilt",
+      "source": "yaml"
+    },
+    {
+      "name": "form",
+      "home_strength": 1.118,
+      "away_strength": 0.882,
+      "weight": 0.1699,
+      "effective_weight": 0.1355,
+      "confidence": 0.8,
+      "available": true,
+      "kind": "tilt",
+      "source": "mock"
+    },
+    {
+      "name": "head_to_head",
+      "home_strength": 1.0,
+      "away_strength": 1.0,
+      "weight": 0.1519,
+      "effective_weight": 0.1211,
+      "confidence": 0.68,
+      "available": true,
+      "kind": "tilt",
+      "source": "mock"
+    },
+    {
+      "name": "goal_efficiency",
+      "home_strength": 1.6496,
+      "away_strength": 0.6062,
+      "weight": 0.1745,
+      "effective_weight": 0.1391,
+      "confidence": 0.75,
+      "available": true,
+      "kind": "tilt",
+      "source": "mock"
+    },
+    {
+      "name": "tournament_context",
+      "home_strength": 1.0,
+      "away_strength": 1.0,
+      "weight": 0.1222,
+      "effective_weight": 0.0,
+      "confidence": 0.0,
+      "available": false,
+      "kind": "tilt",
+      "source": "context"
+    },
+    {
+      "name": "sentiment",
+      "home_strength": 1.0,
+      "away_strength": 1.0,
+      "weight": 0.1342,
+      "effective_weight": 0.0,
+      "confidence": 0.0,
+      "available": false,
+      "kind": "tilt",
+      "source": "reddit"
+    },
+    {
+      "name": "squad_availability",
+      "home_strength": 1.0,
+      "away_strength": 1.0,
+      "weight": 0.1228,
+      "effective_weight": 0.0,
+      "confidence": 0.0,
+      "available": false,
+      "kind": "tilt",
+      "source": "squad"
+    },
+    {
+      "name": "fifa_ranking",
+      "home_strength": 1.003,
+      "away_strength": 0.997,
+      "weight": 0.0665,
+      "effective_weight": 0.053,
+      "confidence": 0.7,
+      "available": true,
+      "kind": "tilt",
+      "source": "mock"
+    },
+    {
+      "name": "rest_travel",
+      "home_strength": 1.0,
+      "away_strength": 1.0,
+      "weight": 0.0417,
+      "effective_weight": 0.0333,
+      "confidence": 0.45,
+      "available": true,
+      "kind": "tilt",
+      "source": "schedule"
+    },
+    {
+      "name": "venue_altitude",
+      "home_strength": 1.0,
+      "away_strength": 1.0,
+      "weight": 0.0879,
+      "effective_weight": 0.0,
+      "confidence": 0.0,
+      "available": false,
+      "kind": "tilt",
+      "source": "venue"
+    },
+    {
+      "name": "market_odds",
+      "home_strength": 1.0227,
+      "away_strength": 0.9773,
+      "weight": 0.1143,
+      "effective_weight": 0.0911,
+      "confidence": 0.8,
+      "available": true,
+      "kind": "tilt",
+      "source": "odds"
+    },
+    {
+      "name": "weather",
+      "home_strength": 1.0,
+      "away_strength": 1.0,
+      "weight": 0.0919,
+      "effective_weight": 0.0,
+      "confidence": 0.0,
+      "available": false,
+      "kind": "tilt",
+      "source": "weather"
+    },
+    {
+      "name": "injury_news",
+      "home_strength": 0.992,
+      "away_strength": 1.008,
+      "weight": 0.1204,
+      "effective_weight": 0.096,
+      "confidence": 0.4,
+      "available": true,
+      "kind": "tilt",
+      "source": "mock"
+    },
+    {
+      "name": "momentum_drift",
+      "home_strength": 1.0,
+      "away_strength": 1.0,
+      "weight": 0.0901,
+      "effective_weight": 0.0,
+      "confidence": 0.0,
+      "available": false,
+      "kind": "tilt",
+      "source": "reddit"
+    },
+    {
+      "name": "ml_blend",
+      "home_strength": 0.9357,
+      "away_strength": 1.0687,
+      "weight": 0.0817,
+      "effective_weight": 0.0652,
+      "confidence": 0.65,
+      "available": true,
+      "kind": "tilt",
+      "source": "ml_model"
+    },
+    {
+      "name": "ml_blend_lgbm",
+      "home_strength": 1.0,
+      "away_strength": 1.0,
+      "weight": 0.0442,
+      "effective_weight": 0.0,
+      "confidence": 0.0,
+      "available": false,
+      "kind": "tilt",
+      "source": "ml"
+    },
+    {
+      "name": "llm_sentiment",
+      "home_strength": 1.0,
+      "away_strength": 1.0,
+      "weight": 0.0945,
+      "effective_weight": 0.0,
+      "confidence": 0.0,
+      "available": false,
+      "kind": "tilt",
+      "source": "nvidia_llm"
+    },
+    {
+      "name": "lineup_strength",
+      "home_strength": 0.9633,
+      "away_strength": 1.0,
+      "weight": 0.0209,
+      "effective_weight": 0.0166,
+      "confidence": 0.5,
+      "available": true,
+      "kind": "tilt",
+      "source": "mock"
+    },
+    {
+      "name": "squad_value",
+      "home_strength": 1.0009,
+      "away_strength": 0.9991,
+      "weight": 0.0187,
+      "effective_weight": 0.0149,
+      "confidence": 0.703,
+      "available": true,
+      "kind": "tilt",
+      "source": "mock"
+    },
+    {
+      "name": "network_strength",
+      "home_strength": 1.0,
+      "away_strength": 1.0,
+      "weight": 0.0525,
+      "effective_weight": 0.0,
+      "confidence": 0.0,
+      "available": false,
+      "kind": "tilt",
+      "source": "network"
+    }
+  ],
+  "calibration": {
+    "applied": true,
+    "method": "market-anchor",
+    "note": "Anchored toward the vig-free market consensus (weight 0.50; Constantinou & Fenton 2013 — closing odds are well calibrated). Compounds with the market factor; lower factor_weight_market to avoid.",
+    "calibrated": {
+      "home_win": 0.4901,
+      "draw": 0.2464,
+      "away_win": 0.2635
+    }
+  },
+  "edge_table": [
+    {
+      "market": "1X2",
+      "selection": "Home",
+      "model_p": 0.5405,
+      "fair_p": 0.4398,
+      "decimal_odd": 2.1,
+      "edge_pct": 13.5,
+      "kelly_pct": 12.27,
+      "half_kelly_pct": 6.13,
+      "action": "sanity-check",
+      "model_p_lower": 0.4248,
+      "edge_pct_cons": -10.8,
+      "half_kelly_cons": 0.0
+    },
+    {
+      "market": "1X2",
+      "selection": "Draw",
+      "model_p": 0.2212,
+      "fair_p": 0.2716,
+      "decimal_odd": 3.4,
+      "edge_pct": -24.79,
+      "kelly_pct": 0.0,
+      "half_kelly_pct": 0.0,
+      "action": "no-bet",
+      "model_p_lower": 0.1867,
+      "edge_pct_cons": -36.51,
+      "half_kelly_cons": 0.0
+    },
+    {
+      "market": "1X2",
+      "selection": "Away",
+      "model_p": 0.2384,
+      "fair_p": 0.2886,
+      "decimal_odd": 3.2,
+      "edge_pct": -23.73,
+      "kelly_pct": 0.0,
+      "half_kelly_pct": 0.0,
+      "action": "no-bet",
+      "model_p_lower": 0.1613,
+      "edge_pct_cons": -48.37,
+      "half_kelly_cons": 0.0
+    },
+    {
+      "market": "O/U 2.5",
+      "selection": "Over 2.5",
+      "model_p": 0.4995,
+      "fair_p": 0.5132,
+      "decimal_odd": 1.85,
+      "edge_pct": -7.6,
+      "kelly_pct": 0.0,
+      "half_kelly_pct": 0.0,
+      "action": "no-bet",
+      "model_p_lower": 0.3883,
+      "edge_pct_cons": -28.17,
+      "half_kelly_cons": 0.0
+    },
+    {
+      "market": "O/U 2.5",
+      "selection": "Under 2.5",
+      "model_p": 0.5005,
+      "fair_p": 0.4868,
+      "decimal_odd": 1.95,
+      "edge_pct": -2.4,
+      "kelly_pct": 0.0,
+      "half_kelly_pct": 0.0,
+      "action": "no-bet",
+      "model_p_lower": 0.3967,
+      "edge_pct_cons": -22.65,
+      "half_kelly_cons": 0.0
+    },
+    {
+      "market": "BTTS",
+      "selection": "Yes",
+      "model_p": 0.4957,
+      "fair_p": 0.5263,
+      "decimal_odd": 1.8,
+      "edge_pct": -10.78,
+      "kelly_pct": 0.0,
+      "half_kelly_pct": 0.0,
+      "action": "no-bet",
+      "model_p_lower": 0.3994,
+      "edge_pct_cons": -28.12,
+      "half_kelly_cons": 0.0
+    },
+    {
+      "market": "BTTS",
+      "selection": "No",
+      "model_p": 0.5043,
+      "fair_p": 0.4737,
+      "decimal_odd": 2.0,
+      "edge_pct": 0.86,
+      "kelly_pct": 0.86,
+      "half_kelly_pct": 0.43,
+      "action": "no-bet",
+      "model_p_lower": 0.43,
+      "edge_pct_cons": -14.01,
+      "half_kelly_cons": 0.0
+    },
+    {
+      "market": "Double Chance",
+      "selection": "1X",
+      "model_p": 0.7616,
+      "fair_p": null,
+      "decimal_odd": 1.28,
+      "edge_pct": -2.51,
+      "kelly_pct": 0.0,
+      "half_kelly_pct": 0.0,
+      "action": "no-bet",
+      "model_p_lower": null,
+      "edge_pct_cons": null,
+      "half_kelly_cons": null
+    },
+    {
+      "market": "Double Chance",
+      "selection": "12",
+      "model_p": 0.7788,
+      "fair_p": null,
+      "decimal_odd": 1.3,
+      "edge_pct": 1.25,
+      "kelly_pct": 4.15,
+      "half_kelly_pct": 2.08,
+      "action": "no-bet",
+      "model_p_lower": null,
+      "edge_pct_cons": null,
+      "half_kelly_cons": null
+    },
+    {
+      "market": "Double Chance",
+      "selection": "X2",
+      "model_p": 0.4595,
+      "fair_p": null,
+      "decimal_odd": 1.55,
+      "edge_pct": -28.77,
+      "kelly_pct": 0.0,
+      "half_kelly_pct": 0.0,
+      "action": "no-bet",
+      "model_p_lower": null,
+      "edge_pct_cons": null,
+      "half_kelly_cons": null
+    },
+    {
+      "market": "AH -0.5",
+      "selection": "Home",
+      "model_p": 0.5405,
+      "fair_p": null,
+      "decimal_odd": 1.95,
+      "edge_pct": 5.39,
+      "kelly_pct": 5.67,
+      "half_kelly_pct": 2.84,
+      "action": "standard",
+      "model_p_lower": null,
+      "edge_pct_cons": null,
+      "half_kelly_cons": null
+    },
+    {
+      "market": "AH -0.5",
+      "selection": "Away",
+      "model_p": 0.4595,
+      "fair_p": null,
+      "decimal_odd": 1.95,
+      "edge_pct": -10.39,
+      "kelly_pct": 0.0,
+      "half_kelly_pct": 0.0,
+      "action": "no-bet",
+      "model_p_lower": null,
+      "edge_pct_cons": null,
+      "half_kelly_cons": null
+    }
+  ],
+  "best_value": {
+    "market": "1X2",
+    "selection": "Home",
+    "model_p": 0.5405,
+    "fair_p": 0.4398,
+    "decimal_odd": 2.1,
+    "edge_pct": 13.5,
+    "kelly_pct": 12.27,
+    "half_kelly_pct": 6.13,
+    "action": "sanity-check",
+    "model_p_lower": 0.4248,
+    "edge_pct_cons": -10.8,
+    "half_kelly_cons": 0.0
+  },
+  "warnings": [
+    "all data sources are mock — predictions are illustrative, not live"
+  ],
+  "claude_tasks": [],
+  "data_sources": {
+    "history_home": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "history_away": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "h2h": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "team_meta_home": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "team_meta_away": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "squad_home": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "squad_away": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "weather": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "news": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "fixtures": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "xg_home": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "xg_away": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "lineup_home": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "lineup_away": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "injuries_structured_home": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "injuries_structured_away": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "squad_value_home": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    },
+    "squad_value_away": {
+      "source": "mock",
+      "mode": "mock",
+      "fetched_at": null
+    }
+  }
+}

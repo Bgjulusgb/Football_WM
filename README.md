@@ -83,6 +83,18 @@ Bootstrap-Modellunsicherheit überlebt.
   die blend-konsistente Score-Matrix; **10 000 Sims des 48-Team-Felds in ~1,5 s**
   (gebackene CDFs + vektorisierte pmf). Liefert Titel-/Finale-/Achtelfinal-%.
 
+## 📸 Beispiel-Report
+Ein kompletter Mock-Report (Czech Republic vs South Africa) liegt unter
+[`docs/examples/`](docs/examples/) — als
+[Markdown](docs/examples/example_report.md) ·
+[HTML](docs/examples/example_report.html) (self-contained, mit eingebetteten Charts) ·
+[JSON](docs/examples/example.json), plus ein
+[10 000-Sim-Turnierlauf](docs/examples/tournament.md).
+
+| Faktor-Tornado | Score-Heatmap |
+|---|---|
+| ![Tornado](docs/examples/example_tornado.png) | ![Heatmap](docs/examples/example_heatmap.png) |
+
 ## 🤝 Der Cowork-Loop (Claude als Recherche-Instanz)
 ```mermaid
 flowchart LR
