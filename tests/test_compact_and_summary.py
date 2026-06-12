@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from wm2026.context import synth_config
 from wm2026.pipeline import run_prediction
 from wm2026.report import (
@@ -292,6 +294,7 @@ def test_cli_predict_ah_lines_negative_with_equals(tmp_path):
 
 def test_cli_html_charts_external_shrinks_html(tmp_path):
     """External-charts mode references PNG siblings → tiny HTML."""
+    pytest.importorskip("matplotlib")  # PNG charts need the [viz] extra
     r = _cli("predict", "--mode", "mock", "--home", "A", "--away", "B",
              "--odds", "2.10/3.40/3.20", "--format", "html",
              "--charts", "--charts-external", "--out", str(tmp_path))
