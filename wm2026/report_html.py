@@ -151,14 +151,31 @@ def _cowork(result: dict[str, Any]) -> str:
             f"<ul>{items}</ul></div>")
 
 
-def _charts(result: dict[str, Any], home: str, away: str) -> str:
+def _charts(result: dict[str, Any], home: str, away: str,
+            *, external_prefix: str | None = None) -> str:
+    """Render the charts block.
+
+    With ``external_prefix`` (e.g. ``"wm2026_groupa_kor_vs_cze"``) the HTML
+    references on-disk PNG siblings (``<prefix>_tornado.png`` /
+    ``<prefix>_heatmap.png``) instead of inlining the base64 — drops the
+    HTML payload from ~95 KB to ~10 KB at the price of two extra files.
+    """
+    blocks = []
+    if external_prefix:
+        for name, title in (("tornado", "Factor Tornado"),
+                            ("heatmap", "Score Probability Matrix")):
+            blocks.append(
+                f"<h3>{title}</h3>"
+                f"<img class='chart' alt='{title}' loading='lazy' "
+                f"src='{external_prefix}_{name}.png'>")
+        return "<h2>Charts</h2>" + "".join(blocks)
     try:
         from wm2026.viz import chart_b64
         imgs = chart_b64(result)
     except Exception:
         imgs = {"tornado": None, "heatmap": None}
-    blocks = []
-    for name, title in (("tornado", "Factor Tornado"), ("heatmap", "Score Probability Matrix")):
+    for name, title in (("tornado", "Factor Tornado"),
+                        ("heatmap", "Score Probability Matrix")):
         b64 = imgs.get(name)
         if b64:
             blocks.append(f"<h3>{title}</h3><img class='chart' alt='{title}' "
@@ -168,7 +185,8 @@ def _charts(result: dict[str, Any], home: str, away: str) -> str:
     return ""   # ASCII fallback already in the markdown view; keep HTML lean
 
 
-def build_html(result: dict[str, Any], js: dict[str, Any]) -> str:
+def build_html(result: dict[str, Any], js: dict[str, Any], *,
+               external_charts_prefix: str | None = None) -> str:
     fx = js.get("fixture", {})
     home = _esc(fx.get("home") or "Home")
     away = _esc(fx.get("away") or "Away")
@@ -219,7 +237,8 @@ def build_html(result: dict[str, Any], js: dict[str, Any]) -> str:
     parts.append("</div>")
 
     parts.append(_cowork(result))
-    parts.append(_charts(result, home, away))
+    parts.append(_charts(result, home, away,
+                         external_prefix=external_charts_prefix))
     parts.append(_edge_table(js))
     parts.append(_derived(js))
 

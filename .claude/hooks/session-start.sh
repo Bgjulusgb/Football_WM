@@ -6,12 +6,17 @@
 # Installiert: core (requirements.txt) + .[viz,sentiment,stats] + pytest.
 # Verifiziert: Imports + CLI + ein 5-Sekunden-Smoke-Test gegen den Mock-Pfad.
 # Niemals fatal — der Hook darf die Sitzung nie blockieren (immer Exit 0).
+#
+# Bei Netz-Hängern: pip-install hat ein 90s-Hartlimit pro Aufruf; bei Fehlschlag
+# probiert der Hook den User-Site-Pfad (--user) und meldet den Rest als
+# `wm2026 doctor` — die Pipeline läuft notfalls auch ohne extras.
 # ──────────────────────────────────────────────────────────────────────────────
 
 set -u
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT" || exit 0
 MARKER="$ROOT/.claude/.bootstrapped"
+PIP_TIMEOUT="${WM2026_PIP_TIMEOUT:-90}"
 
 log() { printf '\033[2m[wm2026-hook]\033[0m %s\n' "$*" >&2; }
 ok()  { printf '\033[32m[wm2026-hook]\033[0m %s\n' "$*" >&2; }
@@ -36,17 +41,34 @@ if ! python3 -m pip --version >/dev/null 2>&1; then
   python3 -m ensurepip --default-pip >/dev/null 2>&1 || true
 fi
 
+# pip_install_safe — try the system path, fall back to --user, never raise.
+pip_install_safe() {
+  local label="$1"; shift
+  log "installiere ${label}…"
+  if timeout "${PIP_TIMEOUT}" python3 -m pip install \
+       --quiet --disable-pip-version-check "$@" 2>&1 | tail -3 >&2; then
+    return 0
+  fi
+  warn "system-pip ${label}: Fehler oder Timeout (${PIP_TIMEOUT}s) — versuche --user"
+  if timeout "${PIP_TIMEOUT}" python3 -m pip install --user \
+       --quiet --disable-pip-version-check "$@" 2>&1 | tail -3 >&2; then
+    ok "--user ${label} ok"
+    return 0
+  fi
+  warn "${label} blieb optional — wm2026 doctor zeigt was fehlt"
+  return 1
+}
+
 # 3) Core-Deps (requirements.txt) — Pflicht für die Pipeline
-log "installiere core deps (numpy/scipy/httpx/pydantic/PyYAML/structlog)…"
-python3 -m pip install --quiet --disable-pip-version-check -r requirements.txt 2>&1 | tail -3 >&2 || warn "core install hatte Warnungen"
+pip_install_safe "core deps (numpy/scipy/httpx/pydantic/PyYAML/structlog)" \
+  -r requirements.txt
 
 # 4) Optional-Extras über pyproject.toml [viz,sentiment,stats] + pytest
 #    viz       → matplotlib (PNG-Charts in HTML eingebettet)
 #    sentiment → vaderSentiment + textblob (Reddit-Stimmung)
 #    stats     → statsmodels + scikit-learn (exaktes GLM-Poisson + Kalibrierung)
-log "installiere optional extras: viz, sentiment, stats, pytest…"
-python3 -m pip install --quiet --disable-pip-version-check ".[viz,sentiment,stats,test]" 2>&1 | tail -3 >&2 || \
-  warn "extras install hatte Warnungen — Pipeline läuft trotzdem (graceful degrade)"
+pip_install_safe "optional extras: viz, sentiment, stats, pytest" \
+  ".[viz,sentiment,stats,test]"
 
 # 5) Schneller Verify
 log "verify imports …"
@@ -67,22 +89,18 @@ except Exception as exc:
     sys.exit(0)
 PY
 
-# 6) End-to-End Smoke: ein vollständiger Mock-Predict (~3 s)
-log "smoke test (mock predict)…"
-SMOKE_OUT=$(python3 -m wm2026.cli predict --mode mock \
-  --home Germany --away Brazil --stage QF \
-  --odds "2.10/3.40/3.20" --odds-ou "1.85/1.95" --odds-btts "1.80/2.00" \
-  --calibrate market --format json 2>&1)
-# JSON ist mehrzeilig — auf "match_id" als Anker prüfen
-if echo "$SMOKE_OUT" | grep -q '"match_id"' && echo "$SMOKE_OUT" | grep -q '"lambda_home"'; then
+# 6) End-to-End Smoke: `wm2026 doctor --json` (Dep-Check + Pipeline-Smoke).
+log "smoke test (wm2026 doctor)…"
+DOC_OUT=$(python3 -m wm2026.cli doctor --json 2>/dev/null || true)
+if echo "$DOC_OUT" | grep -q '"smoke_ok": true'; then
   ok "smoke ok — Pipeline ist betriebsbereit."
 else
-  warn "smoke gab kein JSON zurück — bitte 'python -m wm2026.cli predict --mode mock --home A --away B' manuell prüfen."
-  echo "$SMOKE_OUT" | tail -3 | sed 's/^/    /' >&2
+  warn "doctor smoke fehlgeschlagen — bitte 'python -m wm2026.cli doctor' manuell prüfen."
+  echo "$DOC_OUT" | tail -6 | sed 's/^/    /' >&2
 fi
 
 # 7) Marker setzen
 date -u +"%Y-%m-%dT%H:%M:%SZ" > "$MARKER" 2>/dev/null || true
-ok "Bootstrap abgeschlossen. Skills bereit:  predict-match · research-fixture · read-report · analyze-edge · tournament-sim · calibrate-offline · tune-models · list-fixtures · cowork-setup"
+ok "Bootstrap abgeschlossen. Skills bereit:  predict-match · research-fixture · read-report · analyze-edge · inspect-data · compare-runs · tournament-sim · calibrate-offline · tune-models · list-fixtures · cowork-setup"
 
 exit 0

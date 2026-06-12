@@ -62,6 +62,15 @@ def _add_predict_args(p: argparse.ArgumentParser) -> None:
     run.add_argument("--mode", choices=["mock", "live"], default="live",
                      help="live = fetch real internet data (DEFAULT); "
                           "mock = offline, no keys/network (reproducible, for tests/CI)")
+    run.add_argument("--live-sources",
+                     help="comma list: ONLY these connectors go live, the rest mock "
+                          "(implies --mode live), e.g. --live-sources weather,clubelo")
+    run.add_argument("--mock-sources",
+                     help="comma list: force ONLY these connectors to mock, "
+                          "e.g. --mock-sources transfermarkt,rss")
+    run.add_argument("--bankroll", type=float, default=None,
+                     help="bankroll in your currency — annotates the edge table with "
+                          "stake amounts (½-Kelly p50 + conservative p5)")
     run.add_argument("--bootstrap", type=int, default=None,
                      help="bootstrap samples for CIs (default: settings.bootstrap_n)")
     run.add_argument("--calibrate", choices=["auto", "market", "none"], default="auto",
@@ -71,10 +80,24 @@ def _add_predict_args(p: argparse.ArgumentParser) -> None:
     run.add_argument("--overrides-json", help="path to a Claude-researched overrides JSON "
                                               "(xg/elo/weather/sentiment) — see `wm2026 research`")
     run.add_argument("--out", "-o", help="output directory for JSON/MD/PNG")
-    run.add_argument("--format", choices=["markdown", "json", "html"], default="markdown",
-                     help="output format (default markdown); html = self-contained report")
+    run.add_argument("--format", choices=["markdown", "json", "html", "summary"],
+                     default="markdown",
+                     help="output format (default markdown); html = self-contained report; "
+                          "summary = token-budget briefing (~400 tokens)")
     run.add_argument("--json-only", action="store_true", help="alias for --format json")
     run.add_argument("--charts", action="store_true", help="also render PNG charts (needs matplotlib)")
+    run.add_argument("--compact", action="store_true",
+                     help="token-budget JSON: drop raw provenance, per-model markets, "
+                          "per-model CIs, raw_data on factors, AH long tail (~57% smaller)")
+    run.add_argument("--charts-external", action="store_true",
+                     help="HTML references on-disk PNGs instead of inlining base64 "
+                          "(~95 KB → ~10 KB HTML); pairs with --charts + --out")
+    run.add_argument("--ah-lines", default=None,
+                     help="comma list of Asian-handicap lines, e.g. \"-0.5,0,0.5\" "
+                          "(default: full spread −2..+2 incl. quarters)")
+    run.add_argument("--gzip", action="store_true",
+                     help="also write reports/<id>.json.gz (smaller on disk; "
+                          "downstream tools can stream it)")
     run.add_argument("--verbose", "-v", action="store_true", help="show debug logs")
 
 
@@ -96,6 +119,22 @@ def _parse_ah(spec: str | None) -> tuple[float, float | None, float | None] | No
     return (line, home_odd, away_odd)
 
 
+def _parse_ah_lines(spec: str | None) -> list[float] | None:
+    """Parse a comma list of AH lines, e.g. ``"-0.5,0,0.5"``. None ⇒ default set."""
+    if not spec:
+        return None
+    out: list[float] = []
+    for tok in spec.replace(";", ",").split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        try:
+            out.append(float(tok))
+        except ValueError:
+            raise SystemExit(f"error: --ah-lines: cannot parse {tok!r} as float")
+    return out or None
+
+
 def _build_cfg(args: argparse.Namespace):
     from wm2026.context import load_match_config, synth_config
 
@@ -114,19 +153,61 @@ def _build_cfg(args: argparse.Namespace):
     raise SystemExit("error: provide --match <yaml> or both --home and --away")
 
 
+# Per-source live/mock toggles (Phase 4 / Verbesserungsplan Phase-3-Offen-Punkt).
+# Lowercase source name ⇄ USE_MOCK_* env key, mirroring config.settings.
+_SOURCE_NAMES: tuple[str, ...] = (
+    "crawler", "openfootball", "thesportsdb", "openligadb", "wikidata",
+    "weather", "rss", "clubelo", "football_data", "fbref", "understat",
+    "fotmob", "sofascore", "transfermarkt",
+)
+
+
+def _parse_source_list(spec: str | None, flag: str) -> list[str]:
+    """Validate a comma list of connector names → lowercase list (or exit)."""
+    if not spec:
+        return []
+    names = [t.strip().lower() for t in spec.split(",") if t.strip()]
+    unknown = sorted(set(names) - set(_SOURCE_NAMES))
+    if unknown:
+        raise SystemExit(
+            f"error: {flag}: unknown source(s) {', '.join(unknown)} — "
+            f"valid: {', '.join(_SOURCE_NAMES)}")
+    return names
+
+
+def _seed_source_toggles(args: argparse.Namespace) -> None:
+    """Translate --mode / --live-sources / --mock-sources into USE_MOCK_* env.
+
+    Must run before the heavy imports so the import-time ``settings`` singleton
+    already sees the toggles (same contract as the original mock pre-seed).
+    Explicit CLI flags overwrite the environment (they beat any ``.env``).
+    """
+    live_only = _parse_source_list(args.live_sources, "--live-sources")
+    mock_only = _parse_source_list(args.mock_sources, "--mock-sources")
+
+    if live_only and args.mode == "mock":
+        # Selective-live makes no sense in full-mock mode — flip to live.
+        print("[--live-sources given → switching --mode to live]", file=sys.stderr)
+        args.mode = "live"
+
+    if args.mode == "mock":
+        for name in _SOURCE_NAMES:
+            os.environ.setdefault(f"USE_MOCK_{name.upper()}", "true")
+    elif live_only:
+        # ONLY the listed connectors go live; everything else is mock.
+        for name in _SOURCE_NAMES:
+            os.environ[f"USE_MOCK_{name.upper()}"] = (
+                "false" if name in live_only else "true")
+    for name in mock_only:
+        os.environ[f"USE_MOCK_{name.upper()}"] = "true"
+
+
 def _cmd_predict(args: argparse.Namespace) -> int:
     _quiet_logs(args.verbose)
-    # Pre-seed mock toggles before the heavy imports so even import-time settings
-    # reflect the chosen profile (apply_runtime_profile re-asserts them anyway).
-    if args.mode == "mock":
-        for k in (
-            "USE_MOCK_CRAWLER", "USE_MOCK_OPENFOOTBALL", "USE_MOCK_THESPORTSDB",
-            "USE_MOCK_OPENLIGADB", "USE_MOCK_WIKIDATA", "USE_MOCK_WEATHER",
-            "USE_MOCK_RSS", "USE_MOCK_CLUBELO", "USE_MOCK_FOOTBALL_DATA",
-            "USE_MOCK_FBREF", "USE_MOCK_UNDERSTAT", "USE_MOCK_FOTMOB",
-            "USE_MOCK_SOFASCORE", "USE_MOCK_TRANSFERMARKT",
-        ):
-            os.environ.setdefault(k, "true")
+    # Pre-seed mock/live toggles before the heavy imports so even import-time
+    # settings reflect the chosen profile (apply_runtime_profile re-asserts the
+    # full-mock case anyway).
+    _seed_source_toggles(args)
 
     from wm2026.edge import parse_odds
     from wm2026.pipeline import run_prediction
@@ -152,17 +233,30 @@ def _cmd_predict(args: argparse.Namespace) -> int:
         odds_ah=_parse_ah(args.odds_ah),
         calibrate=args.calibrate,
         overrides=overrides,
+        bankroll=args.bankroll,
+        ah_lines=_parse_ah_lines(args.ah_lines),
     ))
     report = build_report(result)
+    # Optional Token-Sparmodus: ein dünnerer JSON-Schnappschuss (faktisch
+    # ohne data_sources-raw, per_model-CIs, factor raw_data). Schema bleibt
+    # gleich; das Feld ``compact: true`` signalisiert es konsumierende Skills.
+    if args.compact:
+        from wm2026.report import compact as _compact
+        report["json"] = _compact(report["json"])
     fmt = "json" if args.json_only else args.format
 
     html_str: str | None = None
     if fmt == "html":
         from wm2026.report_html import build_html
-        html_str = build_html(result, report["json"])
+        ext_prefix = report["json"]["match_id"] if args.charts_external else None
+        html_str = build_html(result, report["json"],
+                              external_charts_prefix=ext_prefix)
         print(html_str)
     elif fmt == "json":
         print(json.dumps(report["json"], indent=2, ensure_ascii=False))
+    elif fmt == "summary":
+        from wm2026.summary import summarise
+        print(summarise(report["json"]))
     else:
         print(report["markdown"])
 
@@ -170,14 +264,21 @@ def _cmd_predict(args: argparse.Namespace) -> int:
         out_dir = Path(args.out)
         out_dir.mkdir(parents=True, exist_ok=True)
         mid = report["json"]["match_id"]
-        (out_dir / f"{mid}.json").write_text(
-            json.dumps(report["json"], indent=2, ensure_ascii=False), encoding="utf-8")
+        json_text = json.dumps(report["json"], indent=2, ensure_ascii=False)
+        (out_dir / f"{mid}.json").write_text(json_text, encoding="utf-8")
         (out_dir / f"{mid}.md").write_text(report["markdown"], encoding="utf-8")
         written = [f"{mid}.json", f"{mid}.md"]
+        if args.gzip:
+            import gzip
+            with gzip.open(out_dir / f"{mid}.json.gz", "wt", encoding="utf-8") as fh:
+                fh.write(json_text)
+            written.append(f"{mid}.json.gz")
         if fmt == "html":
             if html_str is None:
                 from wm2026.report_html import build_html
-                html_str = build_html(result, report["json"])
+                ext_prefix = mid if args.charts_external else None
+                html_str = build_html(result, report["json"],
+                                      external_charts_prefix=ext_prefix)
             (out_dir / f"{mid}.html").write_text(html_str, encoding="utf-8")
             written.append(f"{mid}.html")
         if args.charts:
@@ -186,7 +287,45 @@ def _cmd_predict(args: argparse.Namespace) -> int:
                 written += [p.name for p in render_charts(result, out_dir, mid)]
             except Exception as exc:
                 print(f"[charts skipped: {exc}]", file=sys.stderr)
+        # Always also emit the token-budget summary — it's tiny and the most-
+        # consumed artefact in the Cowork loop.
+        try:
+            from wm2026.summary import summarise
+            (out_dir / f"{mid}.summary.md").write_text(
+                summarise(report["json"]), encoding="utf-8")
+            written.append(f"{mid}.summary.md")
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"[summary skipped: {exc}]", file=sys.stderr)
         print(f"\n→ wrote {', '.join(written)} to {out_dir}/", file=sys.stderr)
+    return 0
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """Run the dependency + pipeline self-check (see wm2026.doctor)."""
+    from wm2026.doctor import main as doctor_main
+    argv = []
+    if args.verbose:
+        argv.append("-v")
+    if args.json:
+        argv.append("--json")
+    return doctor_main(argv)
+
+
+def _cmd_summary(args: argparse.Namespace) -> int:
+    """Print a token-budget summary of an existing JSON report."""
+    from wm2026.summary import summarise
+
+    path = Path(args.path)
+    if not path.exists():
+        print(f"error: {path} not found", file=sys.stderr)
+        return 1
+    if path.suffix == ".gz":
+        import gzip
+        with gzip.open(path, "rt", encoding="utf-8") as fh:
+            js = json.load(fh)
+    else:
+        js = json.loads(path.read_text(encoding="utf-8"))
+    print(summarise(js, top_edges=args.top))
     return 0
 
 
@@ -260,6 +399,7 @@ def _cmd_research(args: argparse.Namespace) -> int:
     """Emit Claude's Cowork assignment (live-data gaps) + an overrides-JSON
     template to fill, then re-run ``predict --overrides-json``."""
     _quiet_logs(args.verbose)
+    _seed_source_toggles(args)    # same per-source toggle contract as predict
     from wm2026.context import overrides_template
     from wm2026.edge import parse_odds
     from wm2026.pipeline import run_prediction
@@ -340,6 +480,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_list = sub.add_parser("list", help="list available match configs")
     p_list.add_argument("--dir", help="match config root (default: config/matches)")
     p_list.set_defaults(func=_cmd_list)
+
+    p_doc = sub.add_parser(
+        "doctor",
+        help="dependency + pipeline self-check (clear ✅/⚠️/❌ per group)")
+    p_doc.add_argument("--verbose", "-v", action="store_true")
+    p_doc.add_argument("--json", action="store_true",
+                       help="emit a compact JSON status (CI-friendly)")
+    p_doc.set_defaults(func=_cmd_doctor)
+
+    p_sum = sub.add_parser(
+        "summary",
+        help="token-budget briefing for an existing JSON report (~400 tokens)")
+    p_sum.add_argument("path", help="path to <match_id>.json (or .json.gz)")
+    p_sum.add_argument("--top", type=int, default=5,
+                       help="cap the edge table at the top-N rows by p5 edge (default 5)")
+    p_sum.set_defaults(func=_cmd_summary)
 
     return parser
 

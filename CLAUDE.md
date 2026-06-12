@@ -53,17 +53,33 @@ in `prompts/WM2026_MASTER_PROMPT.md` (Phase 8).
 - Derived markets + the heatmap use the **blended** matrix
   `blend_score_matrix(models, λ_home, λ_away)` = `Σ wₘ·Mₘ`, so they stay exactly
   consistent with the blended headline numbers. **Reuse this — don't re-derive
-  markets from a single model's matrix.**
+  markets from a single model's matrix.** Weights come from
+  `resolve_blend_weights(model_names)` so opt-in models (e.g. bivariate)
+  renormalise without touching the call sites.
 - Asian-handicap / quarter lines: half-win/half-push settlement, see the
   `wm2026.markets` module docstring. The "quarter = average of its two
   neighbours" identity is the canonical correctness test.
 - Conservative staking (`wm2026/edge.py`): edge & half-Kelly recomputed on the
   bootstrap **p5** (lower bound). Complement selections (Under/No) use `1 − p95`.
+  Phase 4: **Double-Chance** (`dc_1x`/`dc_12`/`dc_x2` are accumulated per
+  sample inside `bootstrap_markets` so the dependency is captured exactly:
+  `dc_12 ≡ 1 − draw`) and **Asian-Handicap** (via `bootstrap_blend_metrics`,
+  one resampling pass over arbitrary matrix functionals on the blended matrix)
+  now carry the same p5 columns. `best_value_cons_pick()` exposes the
+  honest pick (max p5 edge > 0); `--bankroll` annotates stake amounts that
+  zero out when the conservative edge fails.
 - Calibration (`analysis/calibration.py`, Phase 5) fits **without sklearn** —
   pure-Python PAV isotonic + Newton Platt fallbacks. Three modes via
   `--calibrate`: `auto` (fitted artifact if present, else raw), `market`
   (`market_anchor` → shrink 1X2 to the vig-free consensus, the per-match path),
   `none`. Fit an artifact offline with `scripts/fit_calibration_offline.py`.
+- Phase 4 toggles (all opt-in; defaults keep the historical output identical):
+  - `settings.include_bivariate` (`INCLUDE_BIVARIATE`) — adds Karlis-Ntzoufras
+    BivariatePoisson as a 4th blend model.
+  - `settings.lambda_aggregation` (`LAMBDA_AGGREGATION=geom`) — log-linear
+    pooling of factor tilts (symmetric in home/away under inversion).
+  - CLI: `--live-sources weather,clubelo` / `--mock-sources rss` for per-source
+    live/mock control without `.env` editing.
 
 ## Conventions
 - **No new runtime deps** for core features — `numpy`/`scipy` are the ceiling.
@@ -106,11 +122,13 @@ The repo ships a complete Claude Code on the Web Cowork integration —
   settings.json                # registers SessionStart hook + permissions allowlist
   hooks/
     session-start.sh           # idempotent bootstrap: pip install core+[viz,sentiment,stats], verify, smoke-test
-  skills/                      # 9 specialized SKILL.md files
+  skills/                      # 11 specialized SKILL.md files
     predict-match/             #   ⭐ run the full 8-phase pipeline, interpret report
     research-fixture/          #   Cowork-Auftrag loop: Web Search → overrides.json
     read-report/               #   parse JSON, build UI-ready briefing
     analyze-edge/              #   3-stage filter (sanity → p5 → confidence), Kelly stake
+    inspect-data/              #   token-budget tools (--compact, summary, --charts-external)
+    compare-runs/              #   A/B diff two reports (overrides / calibration / bivariate / bankroll)
     tournament-sim/            #   10k tournament Monte-Carlo
     calibrate-offline/         #   fit isotonic/Platt artifacts from history CSV
     tune-models/               #   RPS-based Optuna blend-weight tuning

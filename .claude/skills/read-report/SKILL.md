@@ -8,7 +8,7 @@ description: Parse a wm2026 prediction report (JSON / Markdown / HTML) and produ
 Die Pipeline schreibt drei Artefakte nach `reports/<match_id>.{json,md,html}`.
 Das **JSON** ist die maschinenlesbare Wahrheit — alles andere ist Rendering.
 
-## 1. Report-Schema-Übersicht (schema_version 1.2)
+## 1. Report-Schema-Übersicht (schema_version 1.3)
 
 ```python
 {
@@ -72,12 +72,16 @@ Das **JSON** ist die maschinenlesbare Wahrheit — alles andere ist Rendering.
     {
       "market": "1x2", "selection": "home", "decimal_odd": 2.60,
       "model_p": 0.365, "fair_p": 0.378,
-      "edge_pct": +5.3, "edge_pct_cons": -2.1,   # p5 conservative
-      "half_kelly_pct": 1.2, "kelly_cons_pct": 0.0,
+      "edge_pct": +5.3, "edge_pct_cons": -2.1,         # p5 conservative
+      "half_kelly_pct": 1.2, "half_kelly_cons": 0.0,
+      # Phase 4 — when --bankroll is set:
+      "stake_half_kelly": 12.00, "stake_cons": 0.00,
       "action": "PASS"
     }, ...
   ],
-  "best_value": {...},
+  "best_value": {...},        # max p50 edge (often a sanity-check candidate)
+  "best_value_cons": {...},   # Phase 4 — max p5 edge: the honest pick (or null)
+  "bankroll": 1000.0,         # Phase 4 — echoed back from --bankroll
 
   # Phase 7
   "warnings": ["mock = illustrative, not live", ...],
@@ -140,7 +144,13 @@ Pick: <Favorit | Pick'em>     Stake-Level: <Pass | Token | Standard>
 
 ## 3. Praktische Parser-Snippets
 
-### Komplette Übersicht
+### Erste Wahl: `wm2026 summary`
+Liefert dasselbe in ~400 Tokens statt 4 000 — siehe Skill `inspect-data`:
+```bash
+python -m wm2026.cli summary reports/<match_id>.json          # oder .json.gz
+```
+
+### Komplette Übersicht (falls Skript-Pipeline)
 ```bash
 python3 - <<'PY'
 import json, sys
@@ -155,9 +165,11 @@ for k, v in ci.items():
     if isinstance(v, list) and len(v) == 3:
         print(f"  {k:10}: [p5 {v[0]:.3f} / p50 {v[1]:.3f} / p95 {v[2]:.3f}]")
 print("\n=== EDGE TABLE ===")
-for r in sorted(d.get("edge_table", []), key=lambda x: -x.get("edge_pct_cons", -99)):
+edges = sorted(d.get("edge_table", []),
+               key=lambda x: -(x.get("edge_pct_cons") if x.get("edge_pct_cons") is not None else -1e9))
+for r in edges:
     print(f"{r['market']:10} {r['selection']:8} p={r['model_p']:.3f}  q={r['decimal_odd']:.2f}  "
-          f"edge={r['edge_pct']:+.2f}%  p5={r['edge_pct_cons']:+.2f}%  -> {r['action']}")
+          f"edge={r['edge_pct']:+.2f}%  p5={(r.get('edge_pct_cons') or 0):+.2f}%  -> {r['action']}")
 print("\n=== WARNINGS ===")
 for w in d.get("warnings", []): print(" -", w)
 print("\n=== CLAUDE_TASKS (offen) ===")

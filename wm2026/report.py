@@ -83,7 +83,7 @@ def build_json(result: dict[str, Any]) -> dict[str, Any]:
     ]
 
     return {
-        "schema_version": "1.2",
+        "schema_version": "1.3",
         "match_id": match.get("id") or out.__dict__.get("match_id", "wm2026_match"),
         "model_version": MODEL_VERSION,
         "predicted_at": _iso(result.get("started_at")),
@@ -121,6 +121,11 @@ def build_json(result: dict[str, Any]) -> dict[str, Any]:
         "calibration": result.get("calibration", {}),
         "edge_table": result.get("edges", []),
         "best_value": result.get("best_value"),
+        # Phase 4 (schema 1.3, additiv): der "ehrliche" Pick — höchste Edge,
+        # die auch auf der konservativen Bootstrap-Untergrenze (p5) positiv
+        # bleibt. None ⇒ kein Markt überlebt die p5-Disziplin (Pass).
+        "best_value_cons": result.get("best_value_cons"),
+        "bankroll": result.get("bankroll"),
         "warnings": result.get("warnings", []),
         "claude_tasks": result.get("claude_tasks", []),
         "data_sources": result.get("provenance", {}),
@@ -147,6 +152,123 @@ def _round_derived(d: Any) -> Any:
     if isinstance(d, list):
         return [_round_derived(v) for v in d]
     return d
+
+
+# ── Compact mode (Token-Budget) ───────────────────────────────────────────────
+_COMPACT_FACTOR_KEYS = {"name", "home_strength", "away_strength",
+                        "weight", "effective_weight", "confidence",
+                        "available", "kind"}
+# Headline-CIs muessen erhalten bleiben; per-Modell-CIs sind kompakt-redundant.
+_COMPACT_CI_PRUNE_MODELS = ("poisson", "negbin", "glm_poisson", "bivariate")
+# AH-Linien fuer die Token-Schmal-Variante (5 statt 13).
+_COMPACT_AH_LINES = {-1.0, -0.5, 0.0, 0.5, 1.0}
+
+
+def _compress_provenance(prov: dict[str, Any]) -> dict[str, Any]:
+    """Replace per-slice dicts with the bare mode token (``"live"`` / ``"mock"`` / ...).
+
+    The full provenance can carry the entire upstream payload (FBref last-10,
+    Reddit posts, weather raw JSON) — useful for debugging, not for a Cowork
+    briefing. Downstream skills only consume "which slices are live, which
+    are mock" — keep exactly that. Anything an agent legitimately needs more
+    of, it can re-fetch from the uncompressed JSON via ``--out`` (no compact).
+    """
+    out: dict[str, Any] = {}
+    for slice_name, raw in (prov or {}).items():
+        if isinstance(raw, dict):
+            out[slice_name] = raw.get("mode", "?")
+        else:
+            out[slice_name] = raw
+    return out
+
+
+def _compress_factors(factors: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Strip raw_data; drop unavailable factors entirely (they carry no signal)."""
+    out: list[dict[str, Any]] = []
+    for f in factors or []:
+        if not f.get("available"):
+            continue
+        out.append({k: f.get(k) for k in _COMPACT_FACTOR_KEYS if k in f})
+    return out
+
+
+def _compress_confidence_intervals(ci: dict[str, Any]) -> dict[str, Any]:
+    """Keep the *blended* CIs (this is what edge math consumes); drop per-model."""
+    if not isinstance(ci, dict):
+        return ci
+    blended = ci.get("blended")
+    if blended is None:
+        # Old runs without bootstrap_n>0 — just return as-is.
+        return ci
+    return {"blended": blended}
+
+
+def _compress_derived(dm: dict[str, Any], *,
+                      ah_lines: set[float] | None = None) -> dict[str, Any]:
+    """Limit AH and exact_total_goals payloads to a small headline set."""
+    if not isinstance(dm, dict):
+        return dm
+    out = dict(dm)
+    lines = ah_lines if ah_lines else _COMPACT_AH_LINES
+    ah = out.get("asian_handicap")
+    if isinstance(ah, list):
+        out["asian_handicap"] = [r for r in ah
+                                 if isinstance(r, dict) and r.get("line") in lines]
+    # exact_total_goals: keep totals 0..6, drop the long tail.
+    etg = out.get("exact_total_goals")
+    if isinstance(etg, dict):
+        try:
+            out["exact_total_goals"] = {
+                k: v for k, v in etg.items()
+                if isinstance(k, (str, int)) and int(str(k)) <= 6
+            }
+        except Exception:
+            pass
+    return out
+
+
+def _compress_edge_table(rows: list[dict[str, Any]],
+                         *, top_n: int = 12) -> list[dict[str, Any]]:
+    """Sort by |edge| desc and cap; drop None-only rows (no odds)."""
+    priced = [r for r in (rows or []) if r.get("decimal_odd") is not None]
+    priced.sort(key=lambda r: abs(r.get("edge_pct") or 0.0), reverse=True)
+    return priced[: max(1, top_n)]
+
+
+def compact(js: dict[str, Any], *,
+            ah_lines: set[float] | None = None,
+            top_edges: int = 12) -> dict[str, Any]:
+    """Return a token-budget-friendly copy of the JSON report.
+
+    Drops debug-only blobs while keeping the *betting-relevant* shape
+    (lambdas, blended CIs, headline markets, edge table, conservative pick).
+    Typical size reduction: ~3 950 → ~1 700 tokens.
+
+    Concretely: ``factors`` keeps only the available ones with eight scalar
+    fields each; ``confidence_intervals`` keeps just the blended block;
+    ``derived_markets`` drops the AH long tail (default keeps the 5 main
+    lines); ``edge_table`` is sorted by ``|edge|`` and capped; ``data_sources``
+    collapses each slice's dict to the bare mode token; ``per_model`` and
+    ``correct_score_top5`` are dropped entirely. A ``"compact": true`` flag
+    marks the payload so downstream skills know what to expect.
+    """
+    out = dict(js)
+    out["factors"] = _compress_factors(js.get("factors") or [])
+    out["confidence_intervals"] = _compress_confidence_intervals(
+        js.get("confidence_intervals") or {})
+    out["derived_markets"] = _compress_derived(
+        js.get("derived_markets") or {}, ah_lines=ah_lines)
+    out["edge_table"] = _compress_edge_table(
+        js.get("edge_table") or [], top_n=top_edges)
+    out["data_sources"] = _compress_provenance(js.get("data_sources") or {})
+    out.pop("per_model", None)
+    # top-5 correct scores live in markets — they're nice for the HTML, not for
+    # a JSON consumer that already has the score matrix.
+    if isinstance(out.get("markets"), dict):
+        out["markets"] = {k: v for k, v in out["markets"].items()
+                          if k != "correct_score_top5"}
+    out["compact"] = True
+    return out
 
 
 # ── Markdown assembly (Phase 8B-E) ────────────────────────────────────────────
@@ -189,6 +311,14 @@ def build_markdown(result: dict[str, Any], js: dict[str, Any]) -> str:
                  f"half-Kelly {bv['half_kelly_pct']}% ({bv['action']})")
     else:
         L.append("- **Value pick:** none (no odds supplied or edge < 2%)")
+    bvc = js.get("best_value_cons")
+    if bvc:
+        L.append(f"- **Conservative pick (p5-survivor):** {bvc['market']} — "
+                 f"{bvc['selection']} @ {bvc['decimal_odd']} → p5-edge "
+                 f"**{bvc['edge_pct_cons']}%**, ½-Kelly(p5) {bvc['half_kelly_cons']}%")
+    elif bv:
+        L.append("- **Conservative pick (p5-survivor):** none — no edge survives "
+                 "the bootstrap lower bound (honest call: pass)")
     L.append(f"- **Confidence:** {_confidence_gauge(ensemble.confidence, result['warnings'])} "
              f"(ensemble {ensemble.confidence:.2f}, {js['factors_used']}/{js['factors_total']} factors live)")
     if js["calibration"].get("applied"):

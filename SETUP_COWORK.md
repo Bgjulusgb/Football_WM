@@ -50,7 +50,7 @@ WM2026_FORCE_BOOTSTRAP=1 bash .claude/hooks/session-start.sh
 
 ---
 
-## 2. Die 9 Skills — was wann
+## 2. Die 11 Skills — was wann
 
 | Skill | Wann triggern? |
 |---|---|
@@ -58,8 +58,10 @@ WM2026_FORCE_BOOTSTRAP=1 bash .claude/hooks/session-start.sh
 | **`list-fixtures`** | "Welche Spiele gibt es?", "wo liegt das YAML für DEU vs BRA?" |
 | **`predict-match`** ⭐ | "Prognostiziere Spiel X", "Edge auf 1X2", "wer gewinnt KOR vs CZE?" |
 | **`research-fixture`** | "Cowork-Auftrag abarbeiten", "Live-Quoten holen", "overrides.json bauen" |
-| **`read-report`** | "Lies den Report", "fasse das JSON zusammen", "vergleiche zwei Runs" |
+| **`read-report`** | "Lies den Report", "fasse das JSON zusammen" |
 | **`analyze-edge`** | "Wo ist der echte Wert?", "überlebt der Edge p5?", "was soll ich tippen?" |
+| **`inspect-data`** | "Der JSON ist zu groß", "wie spare ich Tokens?", `--compact` / `summary` / `--charts-external` |
+| **`compare-runs`** | "Wie viel hat das Override bewegt?", "Bivariate vs default", "vor/nach Kalibrierung" |
 | **`tournament-sim`** | "Wer wird Weltmeister?", "Achtelfinal-Chance Gruppe X?" |
 | **`calibrate-offline`** | "Ich habe ein historisches CSV", "kalibriere besser" |
 | **`tune-models`** | "Optimiere Blend-Gewichte", "RPS-Tuning" |
@@ -143,12 +145,16 @@ Die Skills setzen explizit jede Schicht ein:
 
 | Schicht | Aktivierung | Skill |
 |---|---|---|
-| **4-Modell-Stack** (DC + NegBin + GLM + BiPoisson, blend-konsistent) | automatisch | `predict-match` |
+| **3-Modell-Blend** (Poisson · NegBin · GLM, blend-konsistent) | automatisch | `predict-match` |
+| **Bivariates Poisson als 4. Blend-Modell** (Karlis-Ntzoufras λ₃) | `INCLUDE_BIVARIATE=true` | `predict-match`, `compare-runs` |
 | **MLE-λ-Schätzer mit Zeitdecay ξ=0.0065** | `settings.use_mle_xg=True` | `predict-match` |
-| **Bootstrap-CIs** (500 Sims, p5/p50/p95) | `--bootstrap 500` (default) | alle |
+| **Geometrische λ-Aggregation** (log-linear, home/away-symmetrisch) | `LAMBDA_AGGREGATION=geom` | `predict-match` |
+| **Bootstrap-CIs** (500 Sims, p5/p50/p95 — inkl. **DC** & **AH**) | `--bootstrap 500` (default) | alle |
 | **Markt-Anker-Kalibrierung** (Constantinou & Fenton 2013) | `--calibrate market` | `predict-match` |
 | **Isotonic + Platt Kalibrierung** (Pure-Python, ohne sklearn) | `--calibrate auto` | `calibrate-offline` |
-| **Konservativer p5-Kelly** | automatisch in Phase 6 | `analyze-edge` |
+| **Konservativer p5-Kelly** + `best_value_cons` (ehrlicher Pick) | automatisch in Phase 6 | `analyze-edge` |
+| **Bankroll-Annotation** (`stake_half_kelly` / `stake_cons`) | `--bankroll 1000` | `analyze-edge` |
+| **Per-Quelle Live/Mock-Toggle** | `--live-sources weather,clubelo` | `predict-match` |
 | **Score-Heatmap + Faktor-Tornado** (PNG, embedded HTML) | `--charts` | `predict-match` |
 | **RPS-Tuning der Blend-Gewichte** | manuell (Optuna) | `tune-models` |
 | **10k Tournament-MC in 1.5 s** | `wm2026 tournament` | `tournament-sim` |

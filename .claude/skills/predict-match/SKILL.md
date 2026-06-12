@@ -45,6 +45,34 @@ python -m wm2026.cli predict --match config/matches/<group>/<slug>.yaml \
   bei Fehler/Key-fehlt automatisch auf Mock zurück. Erzeugt
   `claude_tasks` (Cowork-Auftrag) für jede degradierte Slice.
 - **`--mode mock`** = vollständig offline, reproduzierbar, illustrativ.
+- **`--live-sources weather,clubelo`** (Phase 4): *nur* diese Konnektoren
+  live, alles andere mock — präzise Cowork-Runs ohne `.env`-Editing
+  (impliziert `--mode live`).
+- **`--mock-sources reddit,transfermarkt`**: erzwingt einzelne Quellen auf
+  mock (z.B. Rate-Limit-vermeidend).
+
+### Token-budget Modi (Phase 5) — *immer mitnehmen*
+- **`--compact`**: ~35 % kleinerer JSON (factors-availables-only, blended-CI
+  only, AH-Long-Tail weg, kein per_model). Schema bleibt erhalten,
+  `"compact": true` markiert es. Details: Skill `inspect-data`.
+- **`--charts-external`** + `--charts`: HTML referenziert PNGs statt sie zu
+  embedden → ~10 KB statt ~95 KB.
+- **`--ah-lines=-0.5,0,0.5`** (mit `=`!): nur diese AH-Linien rendern.
+- **`--gzip`**: zusätzlich `<id>.json.gz`. `wm2026 summary` liest .gz direkt.
+- **`--format summary`**: druckt sofort die Token-budget-Briefing-Form
+  (~400 Tokens). Wird zusätzlich als `<id>.summary.md` neben dem Report
+  geschrieben — **immer**, auch ohne `--format summary`.
+
+### Staking-Empfehlungen direkt im Report (Phase 4)
+- **`--bankroll 1000`** annotiert jede Edge-Zeile mit konkretem Einsatz
+  (`stake_half_kelly` p50 / `stake_cons` p5). `stake_cons=0.00` sobald die
+  konservative Edge ≤ 0 ist — die ½-Kelly-auf-p5-Disziplin steht damit im
+  Backend, nicht nur im Briefing.
+- Das neue Feld **`best_value_cons`** im JSON ist der *ehrliche* Pick:
+  höchste Edge, die auf der Bootstrap-Untergrenze (p5) positiv bleibt.
+  `best_value` (alt) maximiert dagegen die rohe p50-Edge — perfekt um die
+  Sanity-Check-Kandidaten transparent zu machen, **nie** als Empfehlung
+  benutzen.
 
 ### Asian-Handicap-Syntax
 Negative Linien **MIT `=`** wegen argparse:
@@ -78,11 +106,14 @@ priorisierter Liste. **Jeden Eintrag abarbeiten:**
 
 | Schicht | Aktivieren via |
 |---|---|
-| **Dixon-Coles + NegBin + GLM-Poisson + Bivariate** (4-Modell-Stack, blend-konsistent) | automatisch in Phase 4 |
+| **Dixon-Coles + NegBin + GLM-Poisson** (3-Modell-Blend, default) | automatisch in Phase 4 |
+| **Bivariates Poisson als 4. Blend-Modell** (Karlis-Ntzoufras λ₃) | `INCLUDE_BIVARIATE=true` (Env) — opt-in, Default off (Stabilitäts-Contract) |
 | **MLE-λ-Schätzer mit Zeitdecay** (Attack/Defence aus Historie) | `settings.use_mle_xg=True` (Env `USE_MLE_XG=true`) |
-| **Bootstrap-CIs** (p5/p50/p95 für jede Headline-Zahl) | `--bootstrap 500` (default) |
+| **Geometrische λ-Aggregation** (log-linear, symmetrisch in home/away) | `LAMBDA_AGGREGATION=geom` (Env) — opt-in, Default `arith` |
+| **Bootstrap-CIs** (p5/p50/p95 für jede Headline-Zahl + DC + AH) | `--bootstrap 500` (default) |
 | **Markt-Anker-Kalibrierung** | `--calibrate market` |
-| **Konservative p5-Edge / p5-Kelly** | automatisch in Phase 6 |
+| **Konservative p5-Edge / p5-Kelly** | automatisch in Phase 6 (1X2 · O/U · BTTS · **DC** · **AH** — alle mit p5) |
+| **Bankroll-Annotation** (`stake_half_kelly`, `stake_cons`) | `--bankroll 1000` |
 | **Score-Heatmap + Faktor-Tornado (PNG)** | `--charts` (braucht matplotlib — vom Hook installiert) |
 
 ## 4. Antworten — was du IMMER mitlieferst

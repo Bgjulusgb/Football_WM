@@ -38,7 +38,25 @@ class EnsembleResult:
 
 
 class FactorEnsemble:
-    """Stateless combiner. Instantiate per-call; no internal mutable state."""
+    """Stateless combiner. Instantiate per-call; no internal mutable state.
+
+    Phase 4 (Verbesserungsplan 2.5): ``aggregation`` steuert, wie die
+    Tilt-Faktoren gemittelt werden —
+    * ``"arith"`` (Default): gewichtetes arithmetisches Mittel (Bestand),
+    * ``"geom"``: log-linear ``exp(Σ wᵢ·ln sᵢ)`` — konsistent fuer
+      multiplikative λ-Tilts und symmetrisch in home/away (Kehrwert-Invarianz).
+    ``None`` liest ``settings.lambda_aggregation`` (lazy, damit das Modul ohne
+    config importierbar bleibt).
+    """
+
+    def __init__(self, aggregation: str | None = None) -> None:
+        if aggregation is None:
+            try:
+                from config.settings import settings as _settings
+                aggregation = getattr(_settings, "lambda_aggregation", "arith")
+            except Exception:  # pragma: no cover - config optional in unit tests
+                aggregation = "arith"
+        self.aggregation = (aggregation or "arith").lower()
 
     def combine(self, signals: list[FactorSignal]) -> EnsembleResult:
         # M1: ein post-Validator NaN/inf in home/away_strength wuerde die
@@ -79,8 +97,19 @@ class FactorEnsemble:
 
         if tilt and tilt_weight > 0:
             eff_weights = {s.name: s.weight / tilt_weight for s in tilt}
-            lambda_home = sum(eff_weights[s.name] * s.home_strength for s in tilt)
-            lambda_away = sum(eff_weights[s.name] * s.away_strength for s in tilt)
+            if self.aggregation == "geom":
+                # Log-lineares Pooling: exp(Σ wᵢ·ln sᵢ). Strengths sind
+                # multiplikative Tilts um 1.0; Clamp auf ≥0.05 haelt den Log
+                # endlich, falls ein Faktor pathologisch nahe 0 meldet.
+                lambda_home = math.exp(sum(
+                    eff_weights[s.name] * math.log(max(0.05, s.home_strength))
+                    for s in tilt))
+                lambda_away = math.exp(sum(
+                    eff_weights[s.name] * math.log(max(0.05, s.away_strength))
+                    for s in tilt))
+            else:
+                lambda_home = sum(eff_weights[s.name] * s.home_strength for s in tilt)
+                lambda_away = sum(eff_weights[s.name] * s.away_strength for s in tilt)
         else:
             # Only global modifiers present — start neutral, let the damp apply.
             eff_weights = {}
@@ -144,6 +173,7 @@ class FactorEnsemble:
                 "ensemble_confidence": confidence,
                 "lambda_home_multiplier": lambda_home,
                 "lambda_away_multiplier": lambda_away,
+                "lambda_aggregation": self.aggregation,
                 "agreement": agreement,
                 "avg_factor_confidence": avg_conf,
                 "global_multiplier": global_mult,

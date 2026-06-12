@@ -48,8 +48,11 @@ python -m wm2026.cli predict \
   --overrides-json reports/<match_id>.overrides.json \
   --odds "<H/D/A>" --odds-ou "<O/U>" --odds-btts "<Y/N>" \
   --odds-dc "<1X/12/X2>" [--odds-ah=<line:H/A>] \
+  --bankroll <Bankroll> \
   --calibrate market --format html --out reports/ --charts
 ```
+Wenn der User keinen Bankroll genannt hat: lass `--bankroll` weg, gib im
+Briefing dafuer den prozentualen ½-Kelly-Anteil (auf p5) statt absoluter Betraege.
 
 Wenn der Report `claude_tasks` enthält UND > 0: **Loop** zu Phase C, fülle die
 neuen Lücken, fahre erneut. Maximal 2 Iterations.
@@ -72,9 +75,13 @@ PY
 ```
 
 ### Phase F — Edge-Analyse (Skill: `analyze-edge`)
-- Edge-Tabelle nach `edge_pct_cons` desc sortieren
-- 3-Stufen-Filter (Sanity → p5 → Konfidenz)
-- Kelly-Stake aus `kelly_cons_pct`
+- Edge-Tabelle nach `edge_pct_cons` desc sortieren — **inklusive** Double
+  Chance und Asian Handicap (haben seit Phase 4 dieselbe p5-Spalte).
+- 3-Stufen-Filter (Sanity > 10 % → p5-Test → Konfidenz).
+- Empfehlung primaer aus `best_value_cons` (höchste p5-Edge, ehrlich).
+  `best_value` (höchste p50-Edge) nur als Sanity-Check-Transparenz nennen.
+- Kelly-Stake aus `half_kelly_cons`; wenn `--bankroll` gesetzt war: konkrete
+  Beträge aus `stake_cons` (`stake_cons=0.00` ⇒ Pass — niemals "uebersteuern").
 
 ### Phase G — Briefing (das hier liefert man dem User)
 

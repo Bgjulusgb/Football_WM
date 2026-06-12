@@ -43,7 +43,7 @@ python debug.py          # Verify: ✅ jede Funktion auf Mock-Daten getestet
 
 > **Claude Code on the Web Bonus:** Wenn du in einer Web-Session arbeitest,
 > macht der **SessionStart-Hook** das automatisch — du musst nur das Repo
-> öffnen und kannst direkt mit "Predict Match X" loslegen. 9 Skills sind
+> öffnen und kannst direkt mit "Predict Match X" loslegen. 11 Skills sind
 > vorinstalliert (siehe `.claude/skills/`).
 
 Das sind die **Core-Deps** (`numpy`, `scipy`, `httpx`, `PyYAML`, `pydantic`,
@@ -100,12 +100,16 @@ auch ohne (degradiert die jeweilige Quelle auf Mock):
 
 ### 4 · Claude-Seite (Skills, Hooks, Cowork-Toggles)
 
+> **Setup-Doku:** [`SETUP_COWORK.md`](SETUP_COWORK.md) — alles in einem.
+
 | | Status | Was tun? |
 |---|---|---|
-| **Skill `predict-match`** (`.claude/skills/predict-match/`) | ✅ schon im Repo | **nichts** — Claude Code lädt ihn automatisch, wenn du nach einer Prediction fragst |
-| **SessionStart-Hook** (Web-Sessions installieren Deps automatisch) | ⚠️ nicht angelegt | optional — sag mir „leg den SessionStart-Hook an", falls du in Web-Sessions automatisch `pip install` willst |
-| **Web Search** in claude.ai | manuell | ☑️ Toggle aktivieren — Claude braucht es zum Quoten-Recherchieren |
-| **Code Execution / File Creation** in claude.ai | manuell | ☑️ aktivieren — Claude muss `wm2026 predict` ausführen + `overrides.json` schreiben können |
+| **11 Skills** in `.claude/skills/` (`predict-match` · `research-fixture` · `read-report` · `analyze-edge` · `inspect-data` · `compare-runs` · `tournament-sim` · `calibrate-offline` · `tune-models` · `list-fixtures` · `cowork-setup`) | ✅ im Repo | **nichts** — Claude Code lädt sie automatisch je nach Frage |
+| **SessionStart-Hook** (`.claude/hooks/session-start.sh`) — installiert Deps + `[viz,sentiment,stats]`, smoke via `wm2026 doctor` | ✅ angelegt | **nichts** — läuft idempotent beim Sitzungsstart, Marker `.claude/.bootstrapped` |
+| **`.claude/settings.json`** — Hook-Registrierung + Permissions-Allowlist (`wm2026 …`, `pytest`, `pip`, Web Search) | ✅ angelegt | **nichts** — keine Permission-Prompts mehr für die Standard-Calls |
+| **Sub-Agent `wm-quant-analyst`** (`.claude/agents/`) — orchestriert End-to-End | ✅ angelegt | optional explizit aufrufen: `@wm-quant-analyst` |
+| **Web Search** in claude.ai | manuell | ☑️ Toggle aktivieren — für Live-Quoten / Lineups |
+| **Code Execution / File Creation** in claude.ai | manuell | ☑️ aktivieren — für `wm2026 predict` + `overrides.json` |
 | **Memory / Past Chats** in claude.ai | manuell | optional — netter Kontext |
 
 ### 5 · Geht alles? (Verify)
@@ -242,6 +246,8 @@ ist nicht mehr „mock-degradiert".
 
 ```bash
 python -m wm2026.cli predict     --match <yaml> [OPTIONS]   # volle Pipeline
+python -m wm2026.cli summary     reports/<id>.json          # Token-budget Briefing (~400 Tokens)
+python -m wm2026.cli doctor                                 # Dep- + Pipeline-Self-Check
 python -m wm2026.cli tournament  --sims 10000               # Turnier-Monte-Carlo (Titel-%)
 python -m wm2026.cli research     --home A --away B          # Cowork-Auftrag + Overrides-Template
 python -m wm2026.cli list                                   # 104 WM-Configs auflisten
@@ -252,14 +258,46 @@ Wichtigste Optionen für `predict`:
 | Flag | Wofür |
 |---|---|
 | `--mode live\|mock` | Default **live** (Internet); `mock` = offline & reproduzierbar |
+| `--live-sources weather,clubelo` · `--mock-sources rss` | per Quelle live/mock (ohne `.env`-Editing) |
 | `--odds "H/D/A"` · `--odds-ou "O/U"` · `--odds-btts "Y/N"` | Buchmacher-Quoten → Edge-Tabelle |
-| `--odds-dc "1X/12/X2"` · `--odds-ah=-0.5:1.95/1.95` | Double Chance / Asian Handicap |
+| `--odds-dc "1X/12/X2"` · `--odds-ah=-0.5:1.95/1.95` | Double Chance / Asian Handicap (negative Linien mit `=`) |
 | `--calibrate auto\|market\|none` | `market` = Kalibrierung gegen vig-freie Konsens-Quote |
-| `--format markdown\|json\|html` | Output-Format (HTML = ein einziges Browser-File) |
+| `--bankroll 1000` | Edge-Tabelle bekommt konkrete Einsatzbeträge (½-Kelly auf p5) |
+| `--ah-lines=-0.5,0,0.5` | AH-Linien begrenzen (Token sparen, mit `=`!) |
+| `--compact` | JSON ~35 % kleiner (factors nur available, blended-CI only, AH-Cap) |
+| `--charts-external` | HTML referenziert externe PNGs statt base64 (~92 % HTML-Reduktion) |
+| `--gzip` | zusätzliches `<id>.json.gz` |
+| `--format markdown\|json\|html\|summary` | `summary` = sofort 400-Token-Briefing |
 | `--overrides-json FILE` | von Claude recherchierte Werte einspeisen |
-| `--out DIR` · `--charts` | Report (+ PNG-Charts) speichern |
+| `--out DIR` · `--charts` | Report (+ PNG-Charts) speichern; schreibt zusätzlich `<id>.summary.md` |
 
 Nach `pip install .` läuft das Ganze auch als `wm2026 …`.
+
+### 🎟 Token-Budget — Reports lesen, ohne Read zu sprengen
+
+Ein voller JSON-Report ist ~4 k Tokens, das HTML ~95 KB. In Skill-/Agent-
+Sitzungen blockiert das schnell. Die drei häufigsten Werkzeuge:
+
+```bash
+# 1) Briefing statt JSON lesen — deterministisch, ~400 Tokens
+python -m wm2026.cli summary reports/<id>.json                # auch .json.gz
+# 2) Kompakter JSON (factors-Filter, AH-Cap, kein per_model, mode-only provenance)
+python -m wm2026.cli predict ... --compact --format json --out reports/
+# 3) HTML klein halten (PNG-Charts als Geschwister-Dateien statt embedded)
+python -m wm2026.cli predict ... --format html --charts --charts-external --out reports/
+```
+
+Volle Übersicht: Skill `inspect-data` (`.claude/skills/inspect-data/SKILL.md`).
+
+### 🩺 Pipeline kaputt? `wm2026 doctor`
+
+```bash
+python -m wm2026.cli doctor          # Tabelle ✅/⚠️/❌ je Gruppe + Smoke-Test
+python -m wm2026.cli doctor --json   # für CI / Hook (Exit 0/1/2)
+```
+- Exit `0`: alle Core-Deps + Pipeline + Schema ok.
+- Exit `1`: Core-Dep fehlt → `pip install -r requirements.txt`.
+- Exit `2`: Pipeline/Schema kaputt → der Fehler-Block zeigt wo.
 
 ---
 
@@ -334,12 +372,16 @@ pytest tests/test_wm2026_pipeline.py tests/test_markets.py tests/test_markets_ex
        tests/test_edge_conservative.py tests/test_backtesting_rps.py \
        tests/test_bivariate_poisson.py tests/test_calibration_offline.py \
        tests/test_overrides.py tests/test_report_html.py \
-       tests/test_xg_estimator.py tests/test_tournament.py -q
-python debug.py            # jede Funktion einmal auf Mock-Daten
+       tests/test_xg_estimator.py tests/test_tournament.py \
+       tests/test_factor_aggregation.py tests/test_phase4_backend.py \
+       tests/test_compact_and_summary.py -q
+python -m wm2026.cli doctor          # 🩺 Dep + Pipeline + Schema in einem Block
+python debug.py                      # 63 Funktions-Checks auf Mock-Daten
 ```
 
-CI fährt diese Suites + `debug.py` auf Python 3.11/3.12 und lädt eine
-Mock-Prediction als Artefakt hoch.
+CI fährt diese Suites + `debug.py` + `wm2026 doctor` auf Python 3.11/3.12 und
+lädt eine Mock-Prediction (compact + gzip + summary + external charts) als
+Artefakt hoch.
 
 ## 🔒 Sicherheit & Disclaimer
 

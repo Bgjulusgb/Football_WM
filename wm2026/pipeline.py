@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Sequence
 
 import structlog
 
@@ -287,6 +287,8 @@ async def run_prediction(
     odds_ah: tuple[float, float | None, float | None] | None = None,
     calibrate: str = "auto",
     overrides: dict[str, Any] | None = None,
+    bankroll: float | None = None,
+    ah_lines: Sequence[float] | None = None,
 ) -> dict[str, Any]:
     """Run all phases for one match config and return the raw ``result`` dict.
 
@@ -352,6 +354,9 @@ async def run_prediction(
         combine=settings.goal_model_combine,
         bootstrap_n=boot,
         bootstrap_xg_sigma=settings.bootstrap_xg_sigma,
+        # Phase 4 (2.2): optionales 4. Blend-Modell — Default off.
+        include_bivariate=getattr(settings, "include_bivariate", False),
+        bivariate_lambda3=getattr(settings, "bivariate_lambda3", 0.12),
     )
     # market_prior stays None: when odds are present the MarketOddsFactor
     # already tilts λ, so a second 1X2 blend would double-count (match_service
@@ -377,6 +382,7 @@ async def run_prediction(
         derived_markets = markets_mod.derive_all(
             matrix,
             p1x2=(out.home_win_prob, out.draw_prob, out.away_win_prob),
+            ah_lines=ah_lines,
             lam_home=out.home_xg, lam_away=out.away_xg,
             models=predictor.models, ht_share=settings.ht_lambda_share,
         )
@@ -412,12 +418,48 @@ async def run_prediction(
         ah_line, ah_home_odd, ah_away_odd = odds_ah
         try:
             ah_model = markets_mod.asian_handicap(matrix, float(ah_line))
+            # Phase 4 (4.2): konservative p5-Spalten auch fuer AH — bootstrappt
+            # die No-Push-Wahrscheinlichkeiten direkt auf der Blend-Matrix
+            # (ein Sampling-Pass fuer beide Seiten).
+            ah_home_lo = ah_away_lo = None
+            if boot > 0:
+                from models_ml.poisson_goals import bootstrap_blend_metrics
+                _line = float(ah_line)
+                ah_ci = bootstrap_blend_metrics(
+                    predictor.models, out.home_xg, out.away_xg,
+                    {
+                        "home_np": lambda M: markets_mod.asian_handicap(M, _line)["home_prob_nopush"],
+                        "away_np": lambda M: markets_mod.asian_handicap(M, _line)["away_prob_nopush"],
+                    },
+                    n=min(boot, 300), xg_sigma=settings.bootstrap_xg_sigma,
+                )
+                if "home_np" in ah_ci:
+                    ah_home_lo = ah_ci["home_np"][0]
+                if "away_np" in ah_ci:
+                    ah_away_lo = ah_ci["away_np"][0]
             edge_rows.extend(edge_mod.evaluate_asian_handicap(
                 ah_model, home_odd=ah_home_odd, away_odd=ah_away_odd,
+                home_p_lower=ah_home_lo, away_p_lower=ah_away_lo,
             ))
         except Exception:  # pragma: no cover - defensive
             log.warning("asian_handicap_edge_failed", line=ah_line)
+
+    # Phase 4 (4.4): Bankroll-bewusstes Staking — annotiert jede Edge-Zeile mit
+    # konkreten Einsatz-Betraegen. stake_cons folgt der ½-Kelly-auf-p5-Disziplin:
+    # 0.00 sobald die konservative Edge nicht positiv ist.
+    if bankroll is not None and bankroll > 0:
+        for r in edge_rows:
+            hk = r.get("half_kelly_pct")
+            r["stake_half_kelly"] = round(bankroll * hk / 100.0, 2) if hk else 0.0
+            hkc = r.get("half_kelly_cons")
+            cons_edge = r.get("edge_pct_cons")
+            r["stake_cons"] = (
+                round(bankroll * hkc / 100.0, 2)
+                if hkc and cons_edge is not None and cons_edge > 0 else 0.0
+            )
+
     best_value = edge_mod.best_value_pick(edge_rows)
+    best_value_cons = edge_mod.best_value_cons_pick(edge_rows)
 
     # Phase 7 — validation + Claude's Cowork research assignment.
     warnings = _validate(out, ensemble, signals, provenance)
@@ -449,6 +491,8 @@ async def run_prediction(
         "provenance": provenance,
         "edges": edge_rows,
         "best_value": best_value,
+        "best_value_cons": best_value_cons,
+        "bankroll": bankroll,
         "warnings": warnings,
         "claude_tasks": claude_tasks,
         "overrides_applied": overrides_applied,
