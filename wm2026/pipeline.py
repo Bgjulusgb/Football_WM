@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Sequence
 
 import structlog
 
@@ -288,6 +288,7 @@ async def run_prediction(
     calibrate: str = "auto",
     overrides: dict[str, Any] | None = None,
     bankroll: float | None = None,
+    ah_lines: Sequence[float] | None = None,
 ) -> dict[str, Any]:
     """Run all phases for one match config and return the raw ``result`` dict.
 
@@ -381,6 +382,7 @@ async def run_prediction(
         derived_markets = markets_mod.derive_all(
             matrix,
             p1x2=(out.home_win_prob, out.draw_prob, out.away_win_prob),
+            ah_lines=ah_lines,
             lam_home=out.home_xg, lam_away=out.away_xg,
             models=predictor.models, ht_share=settings.ht_lambda_share,
         )

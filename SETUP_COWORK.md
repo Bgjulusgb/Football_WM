@@ -50,7 +50,7 @@ WM2026_FORCE_BOOTSTRAP=1 bash .claude/hooks/session-start.sh
 
 ---
 
-## 2. Die 10 Skills — was wann
+## 2. Die 11 Skills — was wann
 
 | Skill | Wann triggern? |
 |---|---|
@@ -60,6 +60,7 @@ WM2026_FORCE_BOOTSTRAP=1 bash .claude/hooks/session-start.sh
 | **`research-fixture`** | "Cowork-Auftrag abarbeiten", "Live-Quoten holen", "overrides.json bauen" |
 | **`read-report`** | "Lies den Report", "fasse das JSON zusammen" |
 | **`analyze-edge`** | "Wo ist der echte Wert?", "überlebt der Edge p5?", "was soll ich tippen?" |
+| **`inspect-data`** | "Der JSON ist zu groß", "wie spare ich Tokens?", `--compact` / `summary` / `--charts-external` |
 | **`compare-runs`** | "Wie viel hat das Override bewegt?", "Bivariate vs default", "vor/nach Kalibrierung" |
 | **`tournament-sim`** | "Wer wird Weltmeister?", "Achtelfinal-Chance Gruppe X?" |
 | **`calibrate-offline`** | "Ich habe ein historisches CSV", "kalibriere besser" |

@@ -122,11 +122,12 @@ The repo ships a complete Claude Code on the Web Cowork integration —
   settings.json                # registers SessionStart hook + permissions allowlist
   hooks/
     session-start.sh           # idempotent bootstrap: pip install core+[viz,sentiment,stats], verify, smoke-test
-  skills/                      # 10 specialized SKILL.md files
+  skills/                      # 11 specialized SKILL.md files
     predict-match/             #   ⭐ run the full 8-phase pipeline, interpret report
     research-fixture/          #   Cowork-Auftrag loop: Web Search → overrides.json
     read-report/               #   parse JSON, build UI-ready briefing
     analyze-edge/              #   3-stage filter (sanity → p5 → confidence), Kelly stake
+    inspect-data/              #   token-budget tools (--compact, summary, --charts-external)
     compare-runs/              #   A/B diff two reports (overrides / calibration / bivariate / bankroll)
     tournament-sim/            #   10k tournament Monte-Carlo
     calibrate-offline/         #   fit isotonic/Platt artifacts from history CSV

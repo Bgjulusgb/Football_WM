@@ -29,9 +29,18 @@ def test_example_json_parses_and_is_current():
 
 def test_example_artifacts_exist():
     for name in ("example_report.md", "example_report.html", "example.json",
-                 "example_tornado.png", "example_heatmap.png", "tournament.md"):
+                 "example_tornado.png", "example_heatmap.png", "tournament.md",
+                 "example.summary.md"):
         assert (EXAMPLES / name).exists(), f"missing docs/examples/{name}"
     # the HTML report is self-contained (embeds the charts, no external assets)
     html = (EXAMPLES / "example_report.html").read_text(encoding="utf-8")
     assert "data:image/png;base64," in html
     assert "http://" not in html and "https://" not in html
+
+
+def test_example_summary_renders_required_blocks():
+    s = (EXAMPLES / "example.summary.md").read_text(encoding="utf-8")
+    assert "## λ + CI" in s
+    assert "## Recommendation" in s
+    # Token budget contract: the on-disk summary stays small.
+    assert len(s) < 2500, f"example summary grew to {len(s)} chars"

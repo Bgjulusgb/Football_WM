@@ -144,7 +144,13 @@ Pick: <Favorit | Pick'em>     Stake-Level: <Pass | Token | Standard>
 
 ## 3. Praktische Parser-Snippets
 
-### Komplette Übersicht
+### Erste Wahl: `wm2026 summary`
+Liefert dasselbe in ~400 Tokens statt 4 000 — siehe Skill `inspect-data`:
+```bash
+python -m wm2026.cli summary reports/<match_id>.json          # oder .json.gz
+```
+
+### Komplette Übersicht (falls Skript-Pipeline)
 ```bash
 python3 - <<'PY'
 import json, sys
@@ -159,9 +165,11 @@ for k, v in ci.items():
     if isinstance(v, list) and len(v) == 3:
         print(f"  {k:10}: [p5 {v[0]:.3f} / p50 {v[1]:.3f} / p95 {v[2]:.3f}]")
 print("\n=== EDGE TABLE ===")
-for r in sorted(d.get("edge_table", []), key=lambda x: -x.get("edge_pct_cons", -99)):
+edges = sorted(d.get("edge_table", []),
+               key=lambda x: -(x.get("edge_pct_cons") if x.get("edge_pct_cons") is not None else -1e9))
+for r in edges:
     print(f"{r['market']:10} {r['selection']:8} p={r['model_p']:.3f}  q={r['decimal_odd']:.2f}  "
-          f"edge={r['edge_pct']:+.2f}%  p5={r['edge_pct_cons']:+.2f}%  -> {r['action']}")
+          f"edge={r['edge_pct']:+.2f}%  p5={(r.get('edge_pct_cons') or 0):+.2f}%  -> {r['action']}")
 print("\n=== WARNINGS ===")
 for w in d.get("warnings", []): print(" -", w)
 print("\n=== CLAUDE_TASKS (offen) ===")

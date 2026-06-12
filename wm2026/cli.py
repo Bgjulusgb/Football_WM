@@ -80,10 +80,24 @@ def _add_predict_args(p: argparse.ArgumentParser) -> None:
     run.add_argument("--overrides-json", help="path to a Claude-researched overrides JSON "
                                               "(xg/elo/weather/sentiment) — see `wm2026 research`")
     run.add_argument("--out", "-o", help="output directory for JSON/MD/PNG")
-    run.add_argument("--format", choices=["markdown", "json", "html"], default="markdown",
-                     help="output format (default markdown); html = self-contained report")
+    run.add_argument("--format", choices=["markdown", "json", "html", "summary"],
+                     default="markdown",
+                     help="output format (default markdown); html = self-contained report; "
+                          "summary = token-budget briefing (~400 tokens)")
     run.add_argument("--json-only", action="store_true", help="alias for --format json")
     run.add_argument("--charts", action="store_true", help="also render PNG charts (needs matplotlib)")
+    run.add_argument("--compact", action="store_true",
+                     help="token-budget JSON: drop raw provenance, per-model markets, "
+                          "per-model CIs, raw_data on factors, AH long tail (~57% smaller)")
+    run.add_argument("--charts-external", action="store_true",
+                     help="HTML references on-disk PNGs instead of inlining base64 "
+                          "(~95 KB → ~10 KB HTML); pairs with --charts + --out")
+    run.add_argument("--ah-lines", default=None,
+                     help="comma list of Asian-handicap lines, e.g. \"-0.5,0,0.5\" "
+                          "(default: full spread −2..+2 incl. quarters)")
+    run.add_argument("--gzip", action="store_true",
+                     help="also write reports/<id>.json.gz (smaller on disk; "
+                          "downstream tools can stream it)")
     run.add_argument("--verbose", "-v", action="store_true", help="show debug logs")
 
 
@@ -103,6 +117,22 @@ def _parse_ah(spec: str | None) -> tuple[float, float | None, float | None] | No
     home_odd = odds[0] if len(odds) > 0 else None
     away_odd = odds[1] if len(odds) > 1 else None
     return (line, home_odd, away_odd)
+
+
+def _parse_ah_lines(spec: str | None) -> list[float] | None:
+    """Parse a comma list of AH lines, e.g. ``"-0.5,0,0.5"``. None ⇒ default set."""
+    if not spec:
+        return None
+    out: list[float] = []
+    for tok in spec.replace(";", ",").split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        try:
+            out.append(float(tok))
+        except ValueError:
+            raise SystemExit(f"error: --ah-lines: cannot parse {tok!r} as float")
+    return out or None
 
 
 def _build_cfg(args: argparse.Namespace):
@@ -204,17 +234,29 @@ def _cmd_predict(args: argparse.Namespace) -> int:
         calibrate=args.calibrate,
         overrides=overrides,
         bankroll=args.bankroll,
+        ah_lines=_parse_ah_lines(args.ah_lines),
     ))
     report = build_report(result)
+    # Optional Token-Sparmodus: ein dünnerer JSON-Schnappschuss (faktisch
+    # ohne data_sources-raw, per_model-CIs, factor raw_data). Schema bleibt
+    # gleich; das Feld ``compact: true`` signalisiert es konsumierende Skills.
+    if args.compact:
+        from wm2026.report import compact as _compact
+        report["json"] = _compact(report["json"])
     fmt = "json" if args.json_only else args.format
 
     html_str: str | None = None
     if fmt == "html":
         from wm2026.report_html import build_html
-        html_str = build_html(result, report["json"])
+        ext_prefix = report["json"]["match_id"] if args.charts_external else None
+        html_str = build_html(result, report["json"],
+                              external_charts_prefix=ext_prefix)
         print(html_str)
     elif fmt == "json":
         print(json.dumps(report["json"], indent=2, ensure_ascii=False))
+    elif fmt == "summary":
+        from wm2026.summary import summarise
+        print(summarise(report["json"]))
     else:
         print(report["markdown"])
 
@@ -222,14 +264,21 @@ def _cmd_predict(args: argparse.Namespace) -> int:
         out_dir = Path(args.out)
         out_dir.mkdir(parents=True, exist_ok=True)
         mid = report["json"]["match_id"]
-        (out_dir / f"{mid}.json").write_text(
-            json.dumps(report["json"], indent=2, ensure_ascii=False), encoding="utf-8")
+        json_text = json.dumps(report["json"], indent=2, ensure_ascii=False)
+        (out_dir / f"{mid}.json").write_text(json_text, encoding="utf-8")
         (out_dir / f"{mid}.md").write_text(report["markdown"], encoding="utf-8")
         written = [f"{mid}.json", f"{mid}.md"]
+        if args.gzip:
+            import gzip
+            with gzip.open(out_dir / f"{mid}.json.gz", "wt", encoding="utf-8") as fh:
+                fh.write(json_text)
+            written.append(f"{mid}.json.gz")
         if fmt == "html":
             if html_str is None:
                 from wm2026.report_html import build_html
-                html_str = build_html(result, report["json"])
+                ext_prefix = mid if args.charts_external else None
+                html_str = build_html(result, report["json"],
+                                      external_charts_prefix=ext_prefix)
             (out_dir / f"{mid}.html").write_text(html_str, encoding="utf-8")
             written.append(f"{mid}.html")
         if args.charts:
@@ -238,7 +287,45 @@ def _cmd_predict(args: argparse.Namespace) -> int:
                 written += [p.name for p in render_charts(result, out_dir, mid)]
             except Exception as exc:
                 print(f"[charts skipped: {exc}]", file=sys.stderr)
+        # Always also emit the token-budget summary — it's tiny and the most-
+        # consumed artefact in the Cowork loop.
+        try:
+            from wm2026.summary import summarise
+            (out_dir / f"{mid}.summary.md").write_text(
+                summarise(report["json"]), encoding="utf-8")
+            written.append(f"{mid}.summary.md")
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"[summary skipped: {exc}]", file=sys.stderr)
         print(f"\n→ wrote {', '.join(written)} to {out_dir}/", file=sys.stderr)
+    return 0
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """Run the dependency + pipeline self-check (see wm2026.doctor)."""
+    from wm2026.doctor import main as doctor_main
+    argv = []
+    if args.verbose:
+        argv.append("-v")
+    if args.json:
+        argv.append("--json")
+    return doctor_main(argv)
+
+
+def _cmd_summary(args: argparse.Namespace) -> int:
+    """Print a token-budget summary of an existing JSON report."""
+    from wm2026.summary import summarise
+
+    path = Path(args.path)
+    if not path.exists():
+        print(f"error: {path} not found", file=sys.stderr)
+        return 1
+    if path.suffix == ".gz":
+        import gzip
+        with gzip.open(path, "rt", encoding="utf-8") as fh:
+            js = json.load(fh)
+    else:
+        js = json.loads(path.read_text(encoding="utf-8"))
+    print(summarise(js, top_edges=args.top))
     return 0
 
 
@@ -393,6 +480,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_list = sub.add_parser("list", help="list available match configs")
     p_list.add_argument("--dir", help="match config root (default: config/matches)")
     p_list.set_defaults(func=_cmd_list)
+
+    p_doc = sub.add_parser(
+        "doctor",
+        help="dependency + pipeline self-check (clear ✅/⚠️/❌ per group)")
+    p_doc.add_argument("--verbose", "-v", action="store_true")
+    p_doc.add_argument("--json", action="store_true",
+                       help="emit a compact JSON status (CI-friendly)")
+    p_doc.set_defaults(func=_cmd_doctor)
+
+    p_sum = sub.add_parser(
+        "summary",
+        help="token-budget briefing for an existing JSON report (~400 tokens)")
+    p_sum.add_argument("path", help="path to <match_id>.json (or .json.gz)")
+    p_sum.add_argument("--top", type=int, default=5,
+                       help="cap the edge table at the top-N rows by p5 edge (default 5)")
+    p_sum.set_defaults(func=_cmd_summary)
 
     return parser
 

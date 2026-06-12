@@ -51,6 +51,18 @@ python -m wm2026.cli predict --match config/matches/<group>/<slug>.yaml \
 - **`--mock-sources reddit,transfermarkt`**: erzwingt einzelne Quellen auf
   mock (z.B. Rate-Limit-vermeidend).
 
+### Token-budget Modi (Phase 5) — *immer mitnehmen*
+- **`--compact`**: ~35 % kleinerer JSON (factors-availables-only, blended-CI
+  only, AH-Long-Tail weg, kein per_model). Schema bleibt erhalten,
+  `"compact": true` markiert es. Details: Skill `inspect-data`.
+- **`--charts-external`** + `--charts`: HTML referenziert PNGs statt sie zu
+  embedden → ~10 KB statt ~95 KB.
+- **`--ah-lines=-0.5,0,0.5`** (mit `=`!): nur diese AH-Linien rendern.
+- **`--gzip`**: zusätzlich `<id>.json.gz`. `wm2026 summary` liest .gz direkt.
+- **`--format summary`**: druckt sofort die Token-budget-Briefing-Form
+  (~400 Tokens). Wird zusätzlich als `<id>.summary.md` neben dem Report
+  geschrieben — **immer**, auch ohne `--format summary`.
+
 ### Staking-Empfehlungen direkt im Report (Phase 4)
 - **`--bankroll 1000`** annotiert jede Edge-Zeile mit konkretem Einsatz
   (`stake_half_kelly` p50 / `stake_cons` p5). `stake_cons=0.00` sobald die
