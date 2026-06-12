@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![deps](https://img.shields.io/badge/core%20deps-numpy%20%C2%B7%20scipy-orange)
 ![markets](https://img.shields.io/badge/märkte-15%2B-success)
-![schema](https://img.shields.io/badge/schema-1.2-informational)
+![schema](https://img.shields.io/badge/schema-1.3-informational)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 </div>
@@ -104,7 +104,7 @@ auch ohne (degradiert die jeweilige Quelle auf Mock):
 
 | | Status | Was tun? |
 |---|---|---|
-| **11 Skills** in `.claude/skills/` (`predict-match` · `research-fixture` · `read-report` · `analyze-edge` · `inspect-data` · `compare-runs` · `tournament-sim` · `calibrate-offline` · `tune-models` · `list-fixtures` · `cowork-setup`) | ✅ im Repo | **nichts** — Claude Code lädt sie automatisch je nach Frage |
+| **12 Skills** in `.claude/skills/` (`predict-match` · `research-fixture` · `read-report` · `analyze-edge` · `inspect-data` · `compare-runs` · `tournament-sim` · `calibrate-offline` · `tune-models` · `backtest-results` · `list-fixtures` · `cowork-setup`) | ✅ im Repo | **nichts** — Claude Code lädt sie automatisch je nach Frage |
 | **SessionStart-Hook** (`.claude/hooks/session-start.sh`) — installiert Deps + `[viz,sentiment,stats]`, smoke via `wm2026 doctor` | ✅ angelegt | **nichts** — läuft idempotent beim Sitzungsstart, Marker `.claude/.bootstrapped` |
 | **`.claude/settings.json`** — Hook-Registrierung + Permissions-Allowlist (`wm2026 …`, `pytest`, `pip`, Web Search) | ✅ angelegt | **nichts** — keine Permission-Prompts mehr für die Standard-Calls |
 | **Sub-Agent `wm-quant-analyst`** (`.claude/agents/`) — orchestriert End-to-End | ✅ angelegt | optional explizit aufrufen: `@wm-quant-analyst` |
@@ -249,7 +249,9 @@ python -m wm2026.cli predict     --match <yaml> [OPTIONS]   # volle Pipeline
 python -m wm2026.cli summary     reports/<id>.json          # Token-budget Briefing (~400 Tokens)
 python -m wm2026.cli doctor                                 # Dep- + Pipeline-Self-Check
 python -m wm2026.cli tournament  --sims 10000               # Turnier-Monte-Carlo (Titel-%)
-python -m wm2026.cli research     --home A --away B          # Cowork-Auftrag + Overrides-Template
+python -m wm2026.cli research    --home A --away B          # Cowork-Auftrag + Overrides-Template
+python -m wm2026.cli tune        history.csv --trials 200   # Optuna RPS-Tuning der Blend-Weights (braucht [tune])
+python -m wm2026.cli backtest    --reports reports/ --truth results.csv  # Brier/RPS + p5-Hit-Rate vs. Realität
 python -m wm2026.cli list                                   # 104 WM-Configs auflisten
 ```
 
@@ -351,8 +353,12 @@ Alle Märkte sind **lineare Funktionale derselben blend-konsistenten Score-Matri
   + Heimvorteil aus zeit-gewichteter Historie (`exp(−ξ·Δt)`) statt naivem
   xG-Mittel. Aktivieren: `settings.use_mle_xg = True`.
 - **Turnier-Monte-Carlo** (`wm2026/tournament.py`): **10 000 Sims des 48-Team-Felds in ~1,5 s** → Titel-/Finale-/Achtelfinal-% pro Team.
-- **Offline-Tuning** (`scripts/tune_models_offline.py`): Blend-Gewichte + ρ gegen
-  RPS optimieren.
+- **Offline-Tuning** (`wm2026 tune` / `scripts/tune_models_offline.py`):
+  Blend-Gewichte + ρ via Optuna gegen RPS optimieren (braucht das `[tune]`-Extra).
+- **Backtest gegen Realität** (`wm2026 backtest` · `wm2026/backtest.py`):
+  Brier · RPS · LogLoss + Hit-Rate von `best_value` (raw) vs `best_value_cons`
+  (p5-Filter) + naïve ½-Kelly-ROI über alle gespeicherten Reports. Validiert
+  empirisch, ob die p5-Konservativ-Regel ihren Preis wert ist.
 
 ---
 
@@ -370,9 +376,11 @@ Alle Märkte sind **lineare Funktionale derselben blend-konsistenten Score-Matri
 pip install pytest
 pytest tests/test_wm2026_pipeline.py tests/test_markets.py tests/test_markets_extended.py \
        tests/test_edge_conservative.py tests/test_backtesting_rps.py \
+       tests/test_backtest_cli.py \
        tests/test_bivariate_poisson.py tests/test_calibration_offline.py \
        tests/test_overrides.py tests/test_report_html.py \
        tests/test_xg_estimator.py tests/test_tournament.py \
+       tests/test_model_tuning.py \
        tests/test_factor_aggregation.py tests/test_phase4_backend.py \
        tests/test_compact_and_summary.py -q
 python -m wm2026.cli doctor          # 🩺 Dep + Pipeline + Schema in einem Block
