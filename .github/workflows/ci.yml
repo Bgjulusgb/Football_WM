@@ -45,17 +45,20 @@ jobs:
             tests/test_xg_estimator.py \
             tests/test_tournament.py \
             tests/test_model_tuning.py \
-            tests/test_examples_guard.py
+            tests/test_examples_guard.py \
+            tests/test_factor_aggregation.py \
+            tests/test_phase4_backend.py
 
       - name: Debug harness — every function on mock data
         run: python debug.py -q
 
-      - name: Smoke — predict a sample fixture (mock, all markets)
+      - name: Smoke — predict a sample fixture (mock, all markets + bankroll)
         run: |
           python -m wm2026.cli predict --mode mock \
             --match config/matches/group_a/cze_vs_rsa.yaml \
             --odds "2.10/3.40/3.20" --odds-ou "1.85/1.95" --odds-btts "1.80/2.00" \
             --odds-dc "1.28/1.30/1.55" --odds-ah=-0.5:1.95/1.95 \
+            --bankroll 1000 \
             --out reports/
 
       - name: Upload prediction report

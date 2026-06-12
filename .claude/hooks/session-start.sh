@@ -83,6 +83,6 @@ fi
 
 # 7) Marker setzen
 date -u +"%Y-%m-%dT%H:%M:%SZ" > "$MARKER" 2>/dev/null || true
-ok "Bootstrap abgeschlossen. Skills bereit:  predict-match · research-fixture · read-report · analyze-edge · tournament-sim · calibrate-offline · tune-models · list-fixtures · cowork-setup"
+ok "Bootstrap abgeschlossen. Skills bereit:  predict-match · research-fixture · read-report · analyze-edge · compare-runs · tournament-sim · calibrate-offline · tune-models · list-fixtures · cowork-setup"
 
 exit 0

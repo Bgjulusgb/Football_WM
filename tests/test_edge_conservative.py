@@ -1,7 +1,12 @@
 """Conservative (bootstrap-p5) staking + Asian-handicap edge rows."""
 from __future__ import annotations
 
-from wm2026.edge import compute_edges, evaluate_asian_handicap, evaluate_line
+from wm2026.edge import (
+    best_value_cons_pick,
+    compute_edges,
+    evaluate_asian_handicap,
+    evaluate_line,
+)
 
 
 def test_conservative_edge_is_below_point_estimate():
@@ -64,3 +69,83 @@ def test_asian_handicap_edge_rows():
     # model-only when no odds
     none_rows = evaluate_asian_handicap(ah)
     assert all(r["decimal_odd"] is None for r in none_rows)
+
+
+# ── Phase 4 — DC conservative columns + AH p5 + best_value_cons ───────────────
+def test_double_chance_gets_conservative_columns_from_dc_ci():
+    """4.1 — DC rows must carry the p5 guard once the bootstrap supplies dc_*."""
+    ci = {
+        "home_win": [0.48, 0.55, 0.62],
+        "draw": [0.18, 0.22, 0.26],
+        "away_win": [0.18, 0.23, 0.28],
+        "dc_1x": [0.70, 0.77, 0.84],
+        "dc_12": [0.74, 0.78, 0.82],
+        "dc_x2": [0.38, 0.45, 0.52],
+    }
+    rows = compute_edges(
+        {"home_win": 0.55, "draw": 0.22, "away_win": 0.23,
+         "over_25": 0.5, "btts": 0.5},
+        odds_dc=[1.25, 1.30, 1.55], ci=ci,
+    )
+    dc = {r["selection"]: r for r in rows if r["market"] == "Double Chance"}
+    assert dc["1X"]["model_p_lower"] == 0.70
+    assert dc["12"]["model_p_lower"] == 0.74
+    assert dc["X2"]["model_p_lower"] == 0.38
+    # 1X @ 1.25 with p5 0.70: cons edge = 0.70*1.25-1 = -12.5% — below p50 edge.
+    assert dc["1X"]["edge_pct_cons"] is not None
+    assert dc["1X"]["edge_pct_cons"] < dc["1X"]["edge_pct"]
+
+
+def test_double_chance_cons_none_without_dc_keys():
+    """Old-style CI (no dc_*) must not crash and leaves the cons columns None."""
+    ci = {"home_win": [0.48, 0.55, 0.62], "draw": [0.18, 0.22, 0.26],
+          "away_win": [0.18, 0.23, 0.28]}
+    rows = compute_edges(
+        {"home_win": 0.55, "draw": 0.22, "away_win": 0.23,
+         "over_25": 0.5, "btts": 0.5},
+        odds_dc=[1.25, 1.30, 1.55], ci=ci,
+    )
+    one_x = next(r for r in rows if r["selection"] == "1X")
+    assert one_x["edge_pct_cons"] is None
+
+
+def test_asian_handicap_conservative_columns():
+    """4.2 — AH rows accept bootstrap p5 of the no-push probabilities."""
+    ah = {"line": -0.5, "home_win": 0.60, "push": 0.0, "away_win": 0.40,
+          "home_prob_nopush": 0.60, "away_prob_nopush": 0.40}
+    rows = evaluate_asian_handicap(
+        ah, home_odd=1.80, away_odd=2.10,
+        home_p_lower=0.52, away_p_lower=0.33,
+    )
+    home = next(r for r in rows if r["selection"] == "Home")
+    away = next(r for r in rows if r["selection"] == "Away")
+    # cons edge = p5 * odd - 1 (same desk approximation as the point estimate)
+    assert abs(home["edge_pct_cons"] - (0.52 * 1.80 - 1.0) * 100.0) < 1e-6
+    assert abs(away["edge_pct_cons"] - (0.33 * 2.10 - 1.0) * 100.0) < 1e-6
+    assert home["edge_pct_cons"] < home["edge_pct"]
+    assert home["model_p_lower"] == 0.52
+
+
+def test_best_value_cons_pick_prefers_p5_survivor():
+    """4.3 — the honest pick maximises the conservative edge, not the raw one."""
+    rows = [
+        # Big raw edge but collapses at p5 (the classic sanity-check trap).
+        {"market": "1X2", "selection": "Away", "edge_pct": 13.0, "edge_pct_cons": -15.0},
+        # Modest raw edge that survives the lower bound.
+        {"market": "Double Chance", "selection": "12", "edge_pct": 9.9, "edge_pct_cons": 5.5},
+        {"market": "BTTS", "selection": "Yes", "edge_pct": 4.0, "edge_pct_cons": 1.2},
+        # No CI at all → not eligible.
+        {"market": "AH -0.5", "selection": "Home", "edge_pct": 20.0, "edge_pct_cons": None},
+    ]
+    pick = best_value_cons_pick(rows)
+    assert pick is not None
+    assert (pick["market"], pick["selection"]) == ("Double Chance", "12")
+
+
+def test_best_value_cons_pick_none_when_nothing_survives():
+    rows = [
+        {"market": "1X2", "selection": "Home", "edge_pct": 8.0, "edge_pct_cons": -2.0},
+        {"market": "BTTS", "selection": "No", "edge_pct": 3.0, "edge_pct_cons": None},
+    ]
+    assert best_value_cons_pick(rows) is None
+    assert best_value_cons_pick([]) is None

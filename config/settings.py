@@ -143,9 +143,20 @@ class Settings(BaseSettings):
     # "primary" = das per goal_model gewaehlte Modell bestimmt die primaere Vorhersage,
     #             die anderen werden trotzdem ausgegeben (Admin-Panel-Vergleich).
     goal_model_combine: str = "blend"
+    # Phase-4 (Verbesserungsplan 2.2): BivariatePoisson als 4. Blend-Modell.
+    # OFF by default — der Default-Output bleibt unverändert; bei true schaltet
+    # resolve_blend_weights() auf BLEND_WEIGHTS_WITH_BIVARIATE um.
+    include_bivariate: bool = False
+    bivariate_lambda3: float = 0.12   # Kovarianz-Anteil λ₃ (Karlis-Ntzoufras)
     # Bootstrap-CIs um Predictions. n=0 deaktiviert die Berechnung.
     bootstrap_n: int = 500
     bootstrap_xg_sigma: float = 0.15
+
+    # Phase-4 (Verbesserungsplan 2.5): Aggregation der Faktor-Multiplikatoren.
+    # "arith" (Default) = gewichtetes arithmetisches Mittel (Bestand);
+    # "geom"            = log-linear, exp(Σ wᵢ·ln sᵢ) — konsistent fuer
+    #                     multiplikative Tilts und symmetrisch in home/away.
+    lambda_aggregation: str = "arith"
 
     # Phase-5 calibration. --calibrate market anchors the 1X2 toward the vig-free
     # market consensus by this weight (0 = pure model, 1 = pure market). 0.5 is a

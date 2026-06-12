@@ -8,7 +8,7 @@ description: Parse a wm2026 prediction report (JSON / Markdown / HTML) and produ
 Die Pipeline schreibt drei Artefakte nach `reports/<match_id>.{json,md,html}`.
 Das **JSON** ist die maschinenlesbare Wahrheit — alles andere ist Rendering.
 
-## 1. Report-Schema-Übersicht (schema_version 1.2)
+## 1. Report-Schema-Übersicht (schema_version 1.3)
 
 ```python
 {
@@ -72,12 +72,16 @@ Das **JSON** ist die maschinenlesbare Wahrheit — alles andere ist Rendering.
     {
       "market": "1x2", "selection": "home", "decimal_odd": 2.60,
       "model_p": 0.365, "fair_p": 0.378,
-      "edge_pct": +5.3, "edge_pct_cons": -2.1,   # p5 conservative
-      "half_kelly_pct": 1.2, "kelly_cons_pct": 0.0,
+      "edge_pct": +5.3, "edge_pct_cons": -2.1,         # p5 conservative
+      "half_kelly_pct": 1.2, "half_kelly_cons": 0.0,
+      # Phase 4 — when --bankroll is set:
+      "stake_half_kelly": 12.00, "stake_cons": 0.00,
       "action": "PASS"
     }, ...
   ],
-  "best_value": {...},
+  "best_value": {...},        # max p50 edge (often a sanity-check candidate)
+  "best_value_cons": {...},   # Phase 4 — max p5 edge: the honest pick (or null)
+  "bankroll": 1000.0,         # Phase 4 — echoed back from --bankroll
 
   # Phase 7
   "warnings": ["mock = illustrative, not live", ...],

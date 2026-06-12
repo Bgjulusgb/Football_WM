@@ -192,15 +192,53 @@ DEFAULT_BLEND_WEIGHTS: Dict[str, float] = {
     "glm_poisson": 0.30,
 }
 
+# Phase 4 (Verbesserungsplan 2.2): Blend-Gewichte wenn das bivariate Poisson als
+# 4. Modell mitlaeuft (settings.include_bivariate). Die Trio-Verhaeltnisse
+# bleiben erhalten (0.34/0.25/0.25 ≈ 0.4/0.3/0.3 skaliert), λ₃-Korrelation
+# bekommt einen bewusst moderaten Anteil bis ein Backtest-Tuning (2.4) vorliegt.
+BLEND_WEIGHTS_WITH_BIVARIATE: Dict[str, float] = {
+    "poisson": 0.34,
+    "negbin": 0.25,
+    "glm_poisson": 0.25,
+    "bivariate": 0.16,
+}
+
+
+def resolve_blend_weights(model_names) -> Dict[str, float]:
+    """Blend-Gewichte fuer eine konkrete Modell-Menge, renormalisiert auf 1.
+
+    Enthaelt die Menge ``"bivariate"``, gilt :data:`BLEND_WEIGHTS_WITH_BIVARIATE`,
+    sonst :data:`DEFAULT_BLEND_WEIGHTS`. Fuer das Standard-Trio ist das Ergebnis
+    **identisch** zu den bisherigen Defaults (Default-Stabilitäts-Contract).
+    Unbekannte Modellnamen erhalten Gewicht 0; ist die Summe 0, faellt die
+    Funktion auf eine Gleichverteilung zurueck (defensiv, nie leere Gewichte).
+    """
+    names = list(model_names)
+    base = BLEND_WEIGHTS_WITH_BIVARIATE if "bivariate" in names else DEFAULT_BLEND_WEIGHTS
+    raw = {n: base.get(n, 0.0) for n in names}
+    total = sum(raw.values())
+    if total <= 0:
+        k = len(names) or 1
+        return {n: 1.0 / k for n in names}
+    return {n: w / total for n, w in raw.items()}
+
 
 def build_all_goal_models(*, rho: float = 0.1, max_goals: int = 6,
-                          negbin_size: float = 8.0) -> Dict[str, DixonColesPoisson]:
+                          negbin_size: float = 8.0,
+                          include_bivariate: bool = False,
+                          bivariate_lambda3: float = 0.12) -> Dict[str, DixonColesPoisson]:
     """Drei Modelle parallel: poisson, negbin, glm_poisson. Wird vom
-    MatchPredictor genutzt, um pro Match alle drei Vorhersagen zu liefern."""
-    return {
+    MatchPredictor genutzt, um pro Match alle drei Vorhersagen zu liefern.
+    ``include_bivariate=True`` haengt das Karlis-Ntzoufras-Modell als 4. an
+    (Phase 4 / Verbesserungsplan 2.2 — opt-in, Default-Output unveraendert)."""
+    models = {
         name: build_goal_model(name, rho=rho, max_goals=max_goals, negbin_size=negbin_size)
         for name in MODEL_NAMES
     }
+    if include_bivariate:
+        models["bivariate"] = build_goal_model(
+            "bivariate", max_goals=max_goals, lambda3=bivariate_lambda3)
+    return models
 
 
 def _scalar(markets: Dict[str, Any], key: str) -> float:
@@ -221,7 +259,7 @@ def blend_markets(
     gewichteten Modells als Repraesentation, damit Score-Verteilungen
     konsistent bleiben.
     """
-    weights = weights or DEFAULT_BLEND_WEIGHTS
+    weights = weights or resolve_blend_weights(per_model.keys())
     total_w = sum(weights.get(m, 0.0) for m in per_model)
     if total_w <= 0:
         total_w = 1.0
@@ -255,7 +293,7 @@ def blend_score_matrix(
     Each ``predict_matrix`` is already normalised to sum 1, and the weights are
     renormalised here, so the result is itself a proper distribution.
     """
-    weights = weights or DEFAULT_BLEND_WEIGHTS
+    weights = weights or resolve_blend_weights(models.keys())
     total_w = sum(weights.get(name, 0.0) for name in models) or 1.0
     acc: np.ndarray | None = None
     for name, model in models.items():
@@ -281,6 +319,14 @@ def bootstrap_markets(
 
     Default n=500, xg_sigma=15% des mean. Returns {market: (p5, p50, p95)}.
     Skalare Markets only; top_scores werden ausgelassen.
+
+    Phase 4 (Verbesserungsplan 4.1): Double-Chance-Quantile (``dc_1x``,
+    ``dc_12``, ``dc_x2``) werden **pro Sample** als Summe der 1X2-Werte
+    akkumuliert — Quantile von Summen, nicht Summen von Quantilen, d.h. die
+    Korrelation zwischen den Outcomes bleibt korrekt erfasst. Damit bekommen
+    Double-Chance-Edges denselben konservativen p5-Guard wie 1X2/O-U/BTTS.
+    Invariante (als Test verankert): ``dc_12 ≡ 1 − draw`` pro Sample ⇒
+    ``p5(dc_12) = 1 − p95(draw)``.
     """
     rng = rng or np.random.default_rng()
     home_xg = max(0.05, float(home_xg))
@@ -289,17 +335,75 @@ def bootstrap_markets(
     away_samples = np.clip(rng.normal(away_xg, away_xg * xg_sigma, n), 0.05, None)
 
     keys = ["home_win", "draw", "away_win", "over_15", "over_25", "over_35", "btts"]
-    accum: Dict[str, list[float]] = {k: [] for k in keys}
+    dc_keys = ["dc_1x", "dc_12", "dc_x2"]
+    accum: Dict[str, list[float]] = {k: [] for k in keys + dc_keys}
     for h, a in zip(home_samples, away_samples):
         m = model.predict_matrix(float(h), float(a))
         mk = model.markets(m)
         for k in keys:
             accum[k].append(_scalar(mk, k))
+        hw, dr, aw = (_scalar(mk, "home_win"), _scalar(mk, "draw"),
+                      _scalar(mk, "away_win"))
+        accum["dc_1x"].append(hw + dr)
+        accum["dc_12"].append(hw + aw)
+        accum["dc_x2"].append(dr + aw)
 
     out: Dict[str, Tuple[float, float, float]] = {}
     for k, vals in accum.items():
         arr = np.asarray(vals)
         out[k] = (
+            float(np.percentile(arr, 5)),
+            float(np.percentile(arr, 50)),
+            float(np.percentile(arr, 95)),
+        )
+    return out
+
+
+def bootstrap_blend_metrics(
+    models: Dict[str, DixonColesPoisson],
+    home_xg: float,
+    away_xg: float,
+    fns: Dict[str, Any],
+    *,
+    weights: Dict[str, float] | None = None,
+    n: int = 300,
+    xg_sigma: float = 0.15,
+    rng: np.random.Generator | None = None,
+) -> Dict[str, Tuple[float, float, float]]:
+    """Bootstrap-Quantile beliebiger Matrix-Metriken auf der **geblendeten**
+    Score-Matrix (Phase 4 / Verbesserungsplan 4.2).
+
+    ``fns`` ist ``{name: callable(matrix) -> float}``. Pro λ-Sample wird die
+    Blend-Matrix **einmal** gebaut und jede Metrik darauf ausgewertet (ein
+    Sampling-Durchlauf für alle Metriken). Im Gegensatz zur gewichteten
+    Quantil-Mittelung der per-Modell-CIs bootstrappt das den Blend direkt —
+    für nichtlineare Funktionale (z.B. Asian-Handicap-No-Push-Anteile) die
+    sauberere Verteilungsaussage. Returns ``{name: (p5, p50, p95)}``.
+    """
+    rng = rng or np.random.default_rng()
+    weights = weights or resolve_blend_weights(models.keys())
+    home_xg = max(0.05, float(home_xg))
+    away_xg = max(0.05, float(away_xg))
+    n = max(1, int(n))
+    home_samples = np.clip(rng.normal(home_xg, home_xg * xg_sigma, n), 0.05, None)
+    away_samples = np.clip(rng.normal(away_xg, away_xg * xg_sigma, n), 0.05, None)
+
+    accum: Dict[str, list[float]] = {name: [] for name in fns}
+    for h, a in zip(home_samples, away_samples):
+        matrix = blend_score_matrix(models, float(h), float(a), weights)
+        for name, fn in fns.items():
+            try:
+                accum[name].append(float(fn(matrix)))
+            except Exception:
+                # Eine kaputte Metrik darf die übrigen nicht mitreißen.
+                continue
+
+    out: Dict[str, Tuple[float, float, float]] = {}
+    for name, vals in accum.items():
+        if not vals:
+            continue
+        arr = np.asarray(vals)
+        out[name] = (
             float(np.percentile(arr, 5)),
             float(np.percentile(arr, 50)),
             float(np.percentile(arr, 95)),
@@ -316,6 +420,9 @@ __all__ = [
     "blend_markets",
     "blend_score_matrix",
     "bootstrap_markets",
+    "bootstrap_blend_metrics",
+    "resolve_blend_weights",
     "MODEL_NAMES",
     "DEFAULT_BLEND_WEIGHTS",
+    "BLEND_WEIGHTS_WITH_BIVARIATE",
 ]

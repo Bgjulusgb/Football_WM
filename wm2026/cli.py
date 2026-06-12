@@ -62,6 +62,15 @@ def _add_predict_args(p: argparse.ArgumentParser) -> None:
     run.add_argument("--mode", choices=["mock", "live"], default="live",
                      help="live = fetch real internet data (DEFAULT); "
                           "mock = offline, no keys/network (reproducible, for tests/CI)")
+    run.add_argument("--live-sources",
+                     help="comma list: ONLY these connectors go live, the rest mock "
+                          "(implies --mode live), e.g. --live-sources weather,clubelo")
+    run.add_argument("--mock-sources",
+                     help="comma list: force ONLY these connectors to mock, "
+                          "e.g. --mock-sources transfermarkt,rss")
+    run.add_argument("--bankroll", type=float, default=None,
+                     help="bankroll in your currency — annotates the edge table with "
+                          "stake amounts (½-Kelly p50 + conservative p5)")
     run.add_argument("--bootstrap", type=int, default=None,
                      help="bootstrap samples for CIs (default: settings.bootstrap_n)")
     run.add_argument("--calibrate", choices=["auto", "market", "none"], default="auto",
@@ -114,19 +123,61 @@ def _build_cfg(args: argparse.Namespace):
     raise SystemExit("error: provide --match <yaml> or both --home and --away")
 
 
+# Per-source live/mock toggles (Phase 4 / Verbesserungsplan Phase-3-Offen-Punkt).
+# Lowercase source name ⇄ USE_MOCK_* env key, mirroring config.settings.
+_SOURCE_NAMES: tuple[str, ...] = (
+    "crawler", "openfootball", "thesportsdb", "openligadb", "wikidata",
+    "weather", "rss", "clubelo", "football_data", "fbref", "understat",
+    "fotmob", "sofascore", "transfermarkt",
+)
+
+
+def _parse_source_list(spec: str | None, flag: str) -> list[str]:
+    """Validate a comma list of connector names → lowercase list (or exit)."""
+    if not spec:
+        return []
+    names = [t.strip().lower() for t in spec.split(",") if t.strip()]
+    unknown = sorted(set(names) - set(_SOURCE_NAMES))
+    if unknown:
+        raise SystemExit(
+            f"error: {flag}: unknown source(s) {', '.join(unknown)} — "
+            f"valid: {', '.join(_SOURCE_NAMES)}")
+    return names
+
+
+def _seed_source_toggles(args: argparse.Namespace) -> None:
+    """Translate --mode / --live-sources / --mock-sources into USE_MOCK_* env.
+
+    Must run before the heavy imports so the import-time ``settings`` singleton
+    already sees the toggles (same contract as the original mock pre-seed).
+    Explicit CLI flags overwrite the environment (they beat any ``.env``).
+    """
+    live_only = _parse_source_list(args.live_sources, "--live-sources")
+    mock_only = _parse_source_list(args.mock_sources, "--mock-sources")
+
+    if live_only and args.mode == "mock":
+        # Selective-live makes no sense in full-mock mode — flip to live.
+        print("[--live-sources given → switching --mode to live]", file=sys.stderr)
+        args.mode = "live"
+
+    if args.mode == "mock":
+        for name in _SOURCE_NAMES:
+            os.environ.setdefault(f"USE_MOCK_{name.upper()}", "true")
+    elif live_only:
+        # ONLY the listed connectors go live; everything else is mock.
+        for name in _SOURCE_NAMES:
+            os.environ[f"USE_MOCK_{name.upper()}"] = (
+                "false" if name in live_only else "true")
+    for name in mock_only:
+        os.environ[f"USE_MOCK_{name.upper()}"] = "true"
+
+
 def _cmd_predict(args: argparse.Namespace) -> int:
     _quiet_logs(args.verbose)
-    # Pre-seed mock toggles before the heavy imports so even import-time settings
-    # reflect the chosen profile (apply_runtime_profile re-asserts them anyway).
-    if args.mode == "mock":
-        for k in (
-            "USE_MOCK_CRAWLER", "USE_MOCK_OPENFOOTBALL", "USE_MOCK_THESPORTSDB",
-            "USE_MOCK_OPENLIGADB", "USE_MOCK_WIKIDATA", "USE_MOCK_WEATHER",
-            "USE_MOCK_RSS", "USE_MOCK_CLUBELO", "USE_MOCK_FOOTBALL_DATA",
-            "USE_MOCK_FBREF", "USE_MOCK_UNDERSTAT", "USE_MOCK_FOTMOB",
-            "USE_MOCK_SOFASCORE", "USE_MOCK_TRANSFERMARKT",
-        ):
-            os.environ.setdefault(k, "true")
+    # Pre-seed mock/live toggles before the heavy imports so even import-time
+    # settings reflect the chosen profile (apply_runtime_profile re-asserts the
+    # full-mock case anyway).
+    _seed_source_toggles(args)
 
     from wm2026.edge import parse_odds
     from wm2026.pipeline import run_prediction
@@ -152,6 +203,7 @@ def _cmd_predict(args: argparse.Namespace) -> int:
         odds_ah=_parse_ah(args.odds_ah),
         calibrate=args.calibrate,
         overrides=overrides,
+        bankroll=args.bankroll,
     ))
     report = build_report(result)
     fmt = "json" if args.json_only else args.format
@@ -260,6 +312,7 @@ def _cmd_research(args: argparse.Namespace) -> int:
     """Emit Claude's Cowork assignment (live-data gaps) + an overrides-JSON
     template to fill, then re-run ``predict --overrides-json``."""
     _quiet_logs(args.verbose)
+    _seed_source_toggles(args)    # same per-source toggle contract as predict
     from wm2026.context import overrides_template
     from wm2026.edge import parse_odds
     from wm2026.pipeline import run_prediction

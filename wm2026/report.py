@@ -83,7 +83,7 @@ def build_json(result: dict[str, Any]) -> dict[str, Any]:
     ]
 
     return {
-        "schema_version": "1.2",
+        "schema_version": "1.3",
         "match_id": match.get("id") or out.__dict__.get("match_id", "wm2026_match"),
         "model_version": MODEL_VERSION,
         "predicted_at": _iso(result.get("started_at")),
@@ -121,6 +121,11 @@ def build_json(result: dict[str, Any]) -> dict[str, Any]:
         "calibration": result.get("calibration", {}),
         "edge_table": result.get("edges", []),
         "best_value": result.get("best_value"),
+        # Phase 4 (schema 1.3, additiv): der "ehrliche" Pick — höchste Edge,
+        # die auch auf der konservativen Bootstrap-Untergrenze (p5) positiv
+        # bleibt. None ⇒ kein Markt überlebt die p5-Disziplin (Pass).
+        "best_value_cons": result.get("best_value_cons"),
+        "bankroll": result.get("bankroll"),
         "warnings": result.get("warnings", []),
         "claude_tasks": result.get("claude_tasks", []),
         "data_sources": result.get("provenance", {}),
@@ -189,6 +194,14 @@ def build_markdown(result: dict[str, Any], js: dict[str, Any]) -> str:
                  f"half-Kelly {bv['half_kelly_pct']}% ({bv['action']})")
     else:
         L.append("- **Value pick:** none (no odds supplied or edge < 2%)")
+    bvc = js.get("best_value_cons")
+    if bvc:
+        L.append(f"- **Conservative pick (p5-survivor):** {bvc['market']} — "
+                 f"{bvc['selection']} @ {bvc['decimal_odd']} → p5-edge "
+                 f"**{bvc['edge_pct_cons']}%**, ½-Kelly(p5) {bvc['half_kelly_cons']}%")
+    elif bv:
+        L.append("- **Conservative pick (p5-survivor):** none — no edge survives "
+                 "the bootstrap lower bound (honest call: pass)")
     L.append(f"- **Confidence:** {_confidence_gauge(ensemble.confidence, result['warnings'])} "
              f"(ensemble {ensemble.confidence:.2f}, {js['factors_used']}/{js['factors_total']} factors live)")
     if js["calibration"].get("applied"):

@@ -47,16 +47,32 @@ f_half = max(0, 0.5 * f_full)     # half-Kelly: weniger Drawdown-Risiko
 
 ### Schritt 1 — Report laden und Edge-Tabelle scannen
 ```bash
-python3 -c "
-import json
-d = json.load(open('reports/<match_id>.json'))
-print(f'mode={d[\"mode\"]}  conf={d[\"ensemble_confidence\"]:.2f}  factors={d[\"factors_used\"]}/{d[\"factors_total\"]}')
-print(f'{\"market\":<10}{\"sel\":<8}{\"p_mod\":>8}{\"p_fair\":>8}{\"odd\":>6}{\"edge\":>8}{\"p5_edge\":>10}{\"½K\":>6}{\"p5_K\":>6}  action')
-for r in sorted(d.get('edge_table', []), key=lambda x: -x.get('edge_pct_cons', -99)):
-    print(f'{r[\"market\"]:<10}{r[\"selection\"]:<8}{r[\"model_p\"]:>8.3f}{r[\"fair_p\"]:>8.3f}{r[\"decimal_odd\"]:>6.2f}'
-          f'{r[\"edge_pct\"]:>+7.1f}%{r[\"edge_pct_cons\"]:>+9.1f}%{r[\"half_kelly_pct\"]:>5.1f}%{r.get(\"kelly_cons_pct\",0):>5.1f}%  {r[\"action\"]}')
-"
+python3 - <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1] if len(sys.argv) > 1 else "reports/<match_id>.json"))
+print(f"mode={d['mode']}  conf={d['ensemble_confidence']:.2f}  factors={d['factors_used']}/{d['factors_total']}  bankroll={d.get('bankroll')}")
+print(f"{'market':<14}{'sel':<10}{'p_mod':>7}{'odd':>6}{'edge':>9}{'p5_edge':>10}{'½K p5':>7}{'stake p5':>10}  action")
+for r in sorted(d.get("edge_table", []),
+                key=lambda x: -(x.get("edge_pct_cons") if x.get("edge_pct_cons") is not None else -99)):
+    e = r.get("edge_pct"); ec = r.get("edge_pct_cons"); hkc = r.get("half_kelly_cons")
+    sc = r.get("stake_cons")
+    print(f"{r['market']:<14}{r['selection']:<10}{r['model_p']:>7.3f}"
+          f"{(r.get('decimal_odd') or 0):>6.2f}"
+          f"{(f'{e:+.1f}%' if e is not None else '–'):>9}"
+          f"{(f'{ec:+.1f}%' if ec is not None else '–'):>10}"
+          f"{(f'{hkc:.1f}%' if hkc is not None else '–'):>7}"
+          f"{(f'{sc:.2f}' if sc is not None else '–'):>10}  {r['action']}")
+print()
+print("best_value (p50 — for transparency):     ", d.get("best_value"))
+print("best_value_cons (p5 — the honest pick):  ", d.get("best_value_cons"))
+PY
 ```
+
+> **Phase-4-Update:** auch **Double-Chance** und **Asian-Handicap**-Zeilen
+> haben jetzt eine `edge_pct_cons`-Spalte und damit denselben p5-Guard wie
+> 1X2/O-U/BTTS. `best_value_cons` zeigt direkt den ehrlichen Pick (None ⇒ Pass).
+> Mit `--bankroll 1000` enthält jede Zeile zusätzlich `stake_half_kelly`
+> (p50) und `stake_cons` (p5, = 0 wenn die konservative Edge ≤ 0).
 
 ### Schritt 2 — Mode-Check
 - Wenn `"mode": "mock"` → **STOPP**: Edges sind illustrativ. Briefing

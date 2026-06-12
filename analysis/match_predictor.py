@@ -10,6 +10,7 @@ from models_ml.poisson_goals import (
     bootstrap_markets,
     build_all_goal_models,
     build_goal_model,
+    resolve_blend_weights,
 )
 
 
@@ -83,7 +84,9 @@ class MatchPredictor:
     def __init__(self, rho: float = 0.1, max_goals: int = 6,
                  goal_model: str = "poisson", negbin_size: float = 8.0,
                  *, combine: str = "blend",
-                 bootstrap_n: int = 0, bootstrap_xg_sigma: float = 0.15) -> None:
+                 bootstrap_n: int = 0, bootstrap_xg_sigma: float = 0.15,
+                 include_bivariate: bool = False,
+                 bivariate_lambda3: float = 0.12) -> None:
         self.rho = rho
         self.max_goals = max_goals
         self.negbin_size = negbin_size
@@ -94,9 +97,14 @@ class MatchPredictor:
 
         # v3.6 — alle drei Tor-Modelle parallel; `self.poisson` zeigt auf das
         # per `goal_model` gewaehlte Modell (Back-Compat mit MatchPredictor.predict).
+        # Phase 4: optionales 4. Modell (BivariatePoisson) — Default off, damit
+        # der Standard-Output unveraendert bleibt.
         self.models = build_all_goal_models(
-            rho=rho, max_goals=max_goals, negbin_size=negbin_size
+            rho=rho, max_goals=max_goals, negbin_size=negbin_size,
+            include_bivariate=include_bivariate,
+            bivariate_lambda3=bivariate_lambda3,
         )
+        self.blend_weights = resolve_blend_weights(self.models.keys())
         primary_key = self.goal_model_name if self.goal_model_name in self.models else "poisson"
         self.poisson = self.models[primary_key]
 
@@ -262,17 +270,21 @@ class MatchPredictor:
                 )
                 per_model_ci[name] = {k: list(v) for k, v in ci.items()}
 
-        blended = blend_markets(per_model_markets, DEFAULT_BLEND_WEIGHTS)
+        # Phase 4: Gewichte folgen der tatsaechlichen Modell-Menge (inkl.
+        # optionalem bivariate) — fuer das Standard-Trio identisch zu
+        # DEFAULT_BLEND_WEIGHTS, d.h. der Default-Output bleibt unveraendert.
+        blend_w = self.blend_weights
+        blended = blend_markets(per_model_markets, blend_w)
         if self.bootstrap_n > 0:
             blended_ci_arrays: Dict[str, list[float]] = {}
             for name, ci in per_model_ci.items():
-                w = DEFAULT_BLEND_WEIGHTS.get(name, 0.0)
+                w = blend_w.get(name, 0.0)
                 for key, (p5, p50, p95) in ci.items():
                     arr = blended_ci_arrays.setdefault(key, [0.0, 0.0, 0.0])
                     arr[0] += w * p5
                     arr[1] += w * p50
                     arr[2] += w * p95
-            total_w = sum(DEFAULT_BLEND_WEIGHTS.values()) or 1.0
+            total_w = sum(blend_w.values()) or 1.0
             per_model_ci["blended"] = {
                 k: [v[0] / total_w, v[1] / total_w, v[2] / total_w]
                 for k, v in blended_ci_arrays.items()
@@ -308,7 +320,7 @@ class MatchPredictor:
             "market_used": market_prior is not None,
             "goal_model_combine": self.combine,
             "goal_model_primary": self.goal_model_name,
-            "blend_weights": dict(DEFAULT_BLEND_WEIGHTS),
+            "blend_weights": dict(blend_w),
             "per_model": per_model_markets,
             "confidence_intervals": per_model_ci,
         }

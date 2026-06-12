@@ -234,17 +234,20 @@ def compute_edges(
 
     # Double Chance (optional) ------------------------------------------------
     # DC outcomes overlap, so there's no clean 3-way de-vig — we report the
-    # model probability + raw edge/Kelly only.
+    # model probability + raw edge/Kelly. Phase 4 (4.1): the conservative p5
+    # bound comes from the bootstrap's per-sample DC sums (dc_1x/dc_12/dc_x2),
+    # so a DC "standard" call now has to survive the same p5 discipline as 1X2.
     if odds_dc:
         h = markets.get("home_win", 0.0)
         d = markets.get("draw", 0.0)
         a = markets.get("away_win", 0.0)
-        for i, (sel, p) in enumerate(
-            [("1X", h + d), ("12", h + a), ("X2", d + a)]
+        for i, (sel, p, ci_key) in enumerate(
+            [("1X", h + d, "dc_1x"), ("12", h + a, "dc_12"), ("X2", d + a, "dc_x2")]
         ):
             rows.append(evaluate_line(
                 "Double Chance", sel, p,
                 odds_dc[i] if len(odds_dc) > i else None,
+                model_p_lower=_lower(ci, ci_key),
             ))
 
     return [r.as_dict() for r in rows]
@@ -255,6 +258,8 @@ def evaluate_asian_handicap(
     *,
     home_odd: float | None = None,
     away_odd: float | None = None,
+    home_p_lower: float | None = None,
+    away_p_lower: float | None = None,
 ) -> list[dict[str, Any]]:
     """Two :class:`EdgeRow`s for an Asian-handicap line from its model shares.
 
@@ -264,26 +269,39 @@ def evaluate_asian_handicap(
     EV — ``EV(back @ odd o) = win·o + push − 1`` — while the displayed model_p
     and the Kelly stake use the no-push-adjusted probability so the bet sits on
     the same axis as a clean two-way market.
+
+    Phase 4 (4.2): ``home_p_lower``/``away_p_lower`` are the bootstrap p5 of the
+    *no-push* probabilities (from ``bootstrap_blend_metrics``). The conservative
+    edge/half-Kelly use the same desk approximation as the point estimate
+    (no-push prob as a two-way market), so the p5 column is on the same axis as
+    the displayed ``model_p``.
     """
     line = ah.get("line", 0.0)
     sign = "+" if line >= 0 else ""
     label = f"AH {sign}{line:g}"
     rows: list[EdgeRow] = []
     sides = [
-        ("Home", ah.get("home_win", 0.0), ah.get("home_prob_nopush", 0.0), home_odd),
-        ("Away", ah.get("away_win", 0.0), ah.get("away_prob_nopush", 0.0), away_odd),
+        ("Home", ah.get("home_win", 0.0), ah.get("home_prob_nopush", 0.0),
+         home_odd, home_p_lower),
+        ("Away", ah.get("away_win", 0.0), ah.get("away_prob_nopush", 0.0),
+         away_odd, away_p_lower),
     ]
     push = ah.get("push", 0.0)
-    for sel, win_share, prob_np, odd in sides:
+    for sel, win_share, prob_np, odd, p_lower in sides:
         if odd is None or odd <= 1.0:
             rows.append(EdgeRow(
                 market=label, selection=sel, model_p=round(prob_np, 4),
                 fair_p=None, decimal_odd=None, edge_pct=None, kelly_pct=None,
                 half_kelly_pct=None, action="—",
+                model_p_lower=round(p_lower, 4) if p_lower is not None else None,
             ))
             continue
         ev = win_share * odd + push - 1.0       # push-aware expected value
         full_kelly = kelly_fraction(prob_np, odd)   # desk approximation (push lowers variance)
+        edge_cons = half_kelly_cons = None
+        if p_lower is not None:
+            edge_cons = round((p_lower * odd - 1.0) * 100.0, 2)
+            half_kelly_cons = round(0.5 * kelly_fraction(p_lower, odd) * 100.0, 2)
         rows.append(EdgeRow(
             market=label, selection=sel, model_p=round(prob_np, 4),
             fair_p=None, decimal_odd=round(odd, 3),
@@ -291,6 +309,9 @@ def evaluate_asian_handicap(
             kelly_pct=round(full_kelly * 100.0, 2),
             half_kelly_pct=round(0.5 * full_kelly * 100.0, 2),
             action=stake_band(ev),
+            model_p_lower=round(p_lower, 4) if p_lower is not None else None,
+            edge_pct_cons=edge_cons,
+            half_kelly_cons=half_kelly_cons,
         ))
     return [r.as_dict() for r in rows]
 
@@ -306,8 +327,26 @@ def best_value_pick(edge_rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     return max(actionable, key=lambda r: r["edge_pct"])
 
 
+def best_value_cons_pick(edge_rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Phase 4 (4.3) — the *honest* pick: highest **conservative** (p5) edge.
+
+    ``best_value_pick`` maximises the raw p50 edge and therefore tends to
+    surface exactly the sanity-check candidates (big edge, thin data). This
+    companion only considers rows whose edge stays positive on the bootstrap
+    lower bound — the value that survives the model's own uncertainty. Returns
+    ``None`` when no row passes (the briefing then says "Pass" honestly).
+    """
+    actionable = [
+        r for r in edge_rows
+        if r.get("edge_pct_cons") is not None and r["edge_pct_cons"] > 0.0
+    ]
+    if not actionable:
+        return None
+    return max(actionable, key=lambda r: r["edge_pct_cons"])
+
+
 __all__ = [
     "EdgeRow", "parse_odds", "devig", "kelly_fraction",
     "evaluate_line", "compute_edges", "evaluate_asian_handicap",
-    "best_value_pick", "stake_band",
+    "best_value_pick", "best_value_cons_pick", "stake_band",
 ]

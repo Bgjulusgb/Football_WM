@@ -38,15 +38,18 @@ YAML-Fallback. Gated: `settings.use_mle_xg=False` (Default → Output unverände
 Getestet (`tests/test_xg_estimator.py`): Recovery aus Synthetik, Sum-to-Zero,
 Decay-Monotonie, Fallback, Default-Stabilität.
 
-### 2.2 Echtes bivariates Poisson als 4. Modell — ✅ Klasse implementiert (opt-in)
+### 2.2 Echtes bivariates Poisson als 4. Modell — ✅ erledigt (opt-in im Blend)
 **Status:** `BivariatePoisson` (Karlis-Ntzoufras, `λ₃`-Kovarianz) ist in
 `models_ml/poisson_goals.py` umgesetzt + getestet (`tests/test_bivariate_poisson.py`):
 `X=Y₁+Y₃, Y=Y₂+Y₃`, `Yᵢ~Poisson(λᵢ)`, `Cov=λ₃`. `λ₃` wird aus dem xG
 herausgelöst (`λ₁=home−λ₃`, `λ₂=away−λ₃`) → **Marginal-Means bleiben exakt**,
 nur die Korrelation (mehr Unentschieden) steigt; `λ₃→0` ⇒ unabhängiges Poisson.
-Über `build_goal_model("bivariate")` wählbar. **Offen (bewusst defensiv):** in
-`MODEL_NAMES` + `DEFAULT_BLEND_WEIGHTS` aufnehmen, sobald die Blend-Gewichte
-(2.4) auf einem Backtest-Set neu getunt sind — das ändert sonst alle Default-Outputs.
+Über `build_goal_model("bivariate")` wählbar.
+**Phase-4-Update:** jetzt auch als **4. Blend-Modell** aktivierbar via
+`settings.include_bivariate=True` (Env `INCLUDE_BIVARIATE=true`) —
+`resolve_blend_weights()` schaltet dann auf `BLEND_WEIGHTS_WITH_BIVARIATE`
+(0.34/0.25/0.25/0.16, renormalisiert) um. Default bleibt **off** → die
+Standard-Outputs sind unverändert (Default-Stabilitäts-Contract).
 
 ### 2.3 Kalibrierung aktiviert — ✅ erledigt (zwei Wege, beide ohne sklearn)
 **Problem war:** `analysis/calibration.py` fittete nur aus der DB *und* brauchte
@@ -75,11 +78,14 @@ optimiert (Optuna tunt heute nur Faktor-Gewichte). **Lösung:** Zielmetrik
 **RPS** (2.+Phase-1-#5) über das Backtest-Set; `analysis/weight_optimizer.py`
 um einen `tune_goal_model_params()`-Pfad erweitern → `runtime_*`-Artefakt.
 
-### 2.5 Geometrische λ-Aggregation
-**Problem:** Faktor-Multiplikatoren werden arithmetisch gemittelt; log-lineare
-(geometrische) Mittelung ist für multiplikative Tilts konsistenter und
-symmetrisch in `home/away`. **Formel:** `λ_mult = exp(Σ wᵢ·ln sᵢ)`. **Wo:**
-`analysis/factor_ensemble.py` hinter `settings.lambda_aggregation = "geom"`.
+### 2.5 Geometrische λ-Aggregation — ✅ erledigt (Phase 4, opt-in)
+**Status:** `FactorEnsemble(aggregation="geom")` mittelt die Tilt-Faktoren
+log-linear: `λ_mult = exp(Σ wᵢ·ln sᵢ)` (Strengths geclamped auf ≥ 0.05 für den
+Log). Geometrisch ist für multiplikative Tilts konsistent und **symmetrisch in
+home/away** (Kehrwert-Invarianz: vertauschte Strengths ⇒ exakt invertierte
+Multiplikatoren — als Test verankert). Default bleibt `"arith"`
+(`settings.lambda_aggregation`, Env `LAMBDA_AGGREGATION=geom`) → Default-Output
+unverändert. Getestet in `tests/test_factor_aggregation.py`.
 
 ---
 
@@ -94,9 +100,67 @@ symmetrisch in `home/away`. **Formel:** `λ_mult = exp(Σ wᵢ·ln sᵢ)`. **Wo:
 - **Cowork-Overrides** — ✅ erledigt: `--overrides-json` + `wm2026 research`
   (`wm2026/context.py:apply_overrides`).
 - **HTML-Report** — ✅ erledigt: `wm2026/report_html.py` + `--format html`.
+- **Per-Quelle-Live-Toggle — ✅ erledigt (Phase 4):** `--live-sources weather,clubelo`
+  (nur diese live, Rest mock; impliziert `--mode live`) und
+  `--mock-sources reddit` (nur diese mock) in `wm2026/cli.py`.
 - **Offen — Karten/Ecken:** eigenes (Negbin-)Zählmodell mit Referee-/Derby-Faktor
-  (braucht sofascore-Stats). **Offen — Per-Quelle-Live-Toggle:**
-  `--live openfootball,weather` statt globalem `--mode`.
+  (braucht sofascore-Stats).
+
+---
+
+## 🛠️ Phase 4 — Backend-Härtung & ehrliches Staking (autonome Session 2026-06-11)
+
+Selbst-Audit des ersten Live-Durchlaufs (KOR vs CZE) ergab konkrete Lücken.
+Jede Position: Befund → Fix → Test. Schema-Bump **1.2 → 1.3** (additiv).
+
+### 4.1 🐞 Double-Chance-Edges ohne p5-Guard (BUGFIX, kritisch)
+**Befund:** `compute_edges` lieferte für DC-Zeilen `edge_pct_cons=None`, aber
+`action="standard"` rein aus der p50-Edge (KOR vs CZE: „DC 12 +9.94 % →
+standard" ohne Konservativ-Check) — genau das Loch, das die p5-Regel schließen
+soll. **Fix:** `bootstrap_markets` akkumuliert jetzt **pro Sample**
+`dc_1x = P(H)+P(D)`, `dc_12`, `dc_x2` (Summen *innerhalb* des Samples ⇒
+Korrelation korrekt erfasst, nicht Quantile addiert). Die Keys fließen durch
+die bestehende Blended-CI-Aggregation; `compute_edges` verdrahtet sie via
+`_lower(ci, "dc_*")`. **Invariante als Test:** `dc_12 ≡ 1 − draw` pro Sample ⇒
+`p5(dc_12) = 1 − p95(draw)` exakt.
+
+### 4.2 🐞 Asian-Handicap-Edges ohne Konservativ-Spalte (BUGFIX)
+**Befund:** `evaluate_asian_handicap` hatte keine `model_p_lower`-Quelle — AH-
+Empfehlungen (die meist-unterschätzten Märkte) liefen ohne p5-Disziplin.
+**Fix:** neues `bootstrap_blend_metrics(models, λh, λa, fns)` in
+`models_ml/poisson_goals.py` — sampelt λ-Paare **einmal**, baut pro Sample die
+geblendete Matrix und wertet beliebige Metrik-Callables aus (mathematisch
+sauberer als Quantil-Mittelung: bootstrappt den Blend direkt). Pipeline reicht
+`home/away_prob_nopush`-p5 an `evaluate_asian_handicap(..., home_p_lower=,
+away_p_lower=)` weiter → cons-Spalten wie bei 1X2.
+
+### 4.3 `best_value_cons` — der ehrliche Pick (additiv)
+**Befund:** `best_value` maximiert die rohe p50-Edge ⇒ zeigt systematisch den
+Sanity-Check-Kandidaten statt des tradebaren Picks. **Fix:**
+`best_value_cons_pick()` = höchste **p5-Edge > 0**; Report trägt beide Felder
+(`best_value` für Transparenz, `best_value_cons` für die Empfehlung).
+
+### 4.4 Bankroll-bewusstes Staking (`--bankroll`)
+`--bankroll 1000` annotiert jede Edge-Zeile mit `stake_half_kelly` (p50) und
+`stake_cons` (p5, **0 wenn die konservative Edge ≤ 0**) in Währungseinheiten;
+Report-JSON trägt `bankroll`. Die ½-Kelly-auf-p5-Disziplin aus den Skills wird
+damit direkt im Backend ausgewiesen statt nur im Briefing nachgerechnet.
+
+### 4.5 Geometrische λ-Aggregation (= 2.5) + Bivariate im Blend (= 2.2)
+Siehe oben — beides opt-in, Default-Stabilität getestet.
+
+### 4.6 Per-Quelle-Live-Toggles (= Phase-3-Offen-Punkt)
+`--live-sources` / `--mock-sources` — präzise Cowork-Runs („nur Wetter+Elo
+live, Rest mock") ohne `.env`-Editing.
+
+### Verifikation Phase 4
+```bash
+pytest tests/test_edge_conservative.py tests/test_factor_aggregation.py \
+       tests/test_wm2026_pipeline.py tests/test_bivariate_poisson.py -q
+python -m wm2026.cli predict --mode mock --match config/matches/group_a/kor_vs_cze.yaml \
+  --odds "2.60/3.05/3.00" --odds-dc "1.30/1.45/1.55" --odds-ah=-0.25:1.92/1.98 \
+  --bankroll 1000 --calibrate market
+```
 
 ---
 
