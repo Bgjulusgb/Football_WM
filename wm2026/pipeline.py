@@ -333,6 +333,21 @@ async def run_prediction(
     if overrides_applied:
         provenance = dict(ctx.provenance)
 
+    # Phase 1.6 — fall back to live odds from the_odds_api connector whenever
+    # the CLI didn't pass --odds* flags. The orchestrator already fetched them
+    # in Phase 1; this lets the edge table populate without any manual entry.
+    if ctx.live_odds:
+        if odds_1x2 is None and ctx.live_odds.get("1x2"):
+            odds_1x2 = list(ctx.live_odds["1x2"])
+            if ctx.market_implied is None:
+                fair, _ = edge_mod.devig(odds_1x2[:3])
+                if len(fair) >= 3:
+                    ctx.market_implied = (fair[0], fair[1], fair[2])
+        if odds_ou25 is None and ctx.live_odds.get("ou_2_5"):
+            odds_ou25 = list(ctx.live_odds["ou_2_5"])
+        if odds_btts is None and ctx.live_odds.get("btts"):
+            odds_btts = list(ctx.live_odds["btts"])
+
     # Phase 2/3 — factor decomposition (+ injected sentiment).
     signals = await _signals(ctx)
 

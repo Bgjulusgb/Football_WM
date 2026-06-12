@@ -63,11 +63,15 @@ def test_pipeline_runs_on_sample_config():
     assert result["best_value"] is not None     # +EV home line with these odds
 
 
-def test_pipeline_synth_config_no_odds():
+def test_pipeline_synth_no_cli_odds_uses_connector_mock_odds():
+    """Phase-4 contract: when the CLI doesn't pass --odds, the odds_api
+    connector's mock fills in deterministic odds (in mock mode) or live odds
+    (when the API key is configured), so the edge table is no longer empty by
+    default. The user can still verify the model with manual odds via --odds."""
     cfg = synth_config(home_team="Germany", away_team="Brazil",
                        home_xg=1.7, away_xg=1.6)
     result = _run(cfg)
-    assert result["best_value"] is None         # no odds → no value pick
+    assert result["best_value"] is not None     # mock odds → edge table works
     assert result["prediction"].over_25 >= 0.0
 
 
@@ -168,9 +172,20 @@ def test_mle_xg_enabled_does_not_crash():
         object.__setattr__(S, "use_mle_xg", False)
 
 
-def test_report_renders_cowork_assignment_when_odds_missing():
+def test_report_renders_cowork_assignment_when_odds_missing(monkeypatch):
+    """When the odds_api connector returns nothing (no key, no mock fallback)
+    AND the CLI didn't pass --odds, the report surfaces an "odds" cowork task."""
+    # Force the odds_api connector to a hard-empty result so the live-odds
+    # fallback in the pipeline doesn't kick in.
+    from data_sources.base import FetchResult
+    from data_sources.odds_api import OddsApiConnector
+
+    async def _no_odds(self, *a, **kw):
+        return FetchResult(None, "error", None, "odds_api")
+
+    monkeypatch.setattr(OddsApiConnector, "get_odds", _no_odds)
     cfg = synth_config(home_team="Spain", away_team="Japan")
-    result = _run(cfg)                            # mock, no odds → odds task fires
+    result = _run(cfg)
     assert any(t["category"] == "odds" for t in result["claude_tasks"])
     report = build_report(result)
     assert "claude_tasks" in report["json"]

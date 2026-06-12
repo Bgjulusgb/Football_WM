@@ -32,6 +32,7 @@ _MOCK_FLAGS = (
     "use_mock_fotmob",
     "use_mock_sofascore",
     "use_mock_transfermarkt",
+    "use_mock_odds_api",
 )
 
 

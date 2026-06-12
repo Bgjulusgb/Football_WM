@@ -121,9 +121,16 @@ class Settings(BaseSettings):
     rate_limit_post_per_minute: int = 5
     admin_api_key: str = ""
 
-    # EXTEND-02: bookmaker odds integration.
+    # EXTEND-02: bookmaker odds integration. Phase 4 of the free-OSS migration
+    # adds a real connector for the-odds-api.com; the integration goes live
+    # automatically when ``odds_api_key`` is set and ``use_mock_odds_api`` is
+    # False (the default). ``enable_odds_integration`` is the legacy flag for
+    # the older ad-hoc paths; the connector itself only reads the key + mock
+    # toggle. The pipeline uses the fetched odds whenever the CLI didn't pass
+    # ``--odds*`` flags.
     odds_api_key: str = ""
     enable_odds_integration: bool = False
+    use_mock_odds_api: bool = False
 
     # EXTEND-03: H2H data.
     enable_h2h: bool = True
