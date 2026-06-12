@@ -89,9 +89,12 @@ auch ohne (degradiert die jeweilige Quelle auf Mock):
 |---|---|---|
 | `ODDS_API_KEY` | Live-Quoten (1X2, O/U, BTTS) | the-odds-api.com (free tier) |
 | `FOOTBALL_DATA_API_KEY` | Fixtures Cross-Check | football-data.org (free tier) |
-| `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` | Reddit-Stimmung | reddit.com/prefs/apps |
 | `NVIDIA_API_KEY` | LLM-Sentiment-Scoring (Aspect-Sentiment) | build.nvidia.com |
-| `TWITTER_BEARER_TOKEN` | X-Crawler | developer.twitter.com |
+
+> **Reddit-Stimmung läuft ohne Account** — der Crawler liest den öffentlichen
+> `old.reddit.com/.json`-Endpunkt (höflich gedrosselt: 4 parallel, Backoff,
+> Circuit-Breaker). Twitter/X ist entfernt (bräuchte die kostenpflichtige
+> v2-API — Projekt-Policy: nur Free/Open-Source-Quellen).
 
 > Alternative ohne Keys: Quoten direkt per Flag mitgeben:
 > `--odds "2.10/3.40/3.20" --odds-ou "1.85/1.95"`.
