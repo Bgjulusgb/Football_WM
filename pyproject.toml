@@ -35,6 +35,8 @@ tui = ["rich>=13"]
 tune = ["optuna>=3.6"]
 # Test suite.
 test = ["pytest>=7.4"]
+# Lint + format. Used by the advisory CI job — not required for runtime.
+dev = ["ruff>=0.4.0"]
 # Note: the HTML report (--format html) needs NO extra deps — it's self-contained
 # (charts embed via the optional `viz` extra, ASCII fallback otherwise).
 # Everything the workflow can use (not the heavy FastAPI/Prefect/ML-training app).
@@ -62,3 +64,23 @@ exclude = ["tests*", "alembic*", "api*", "db*", "orchestration*", "services*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+# Ruff config (advisory lint, repo-wide settings; CI only runs ruff on the files
+# touched by the "Top-7 Quick Wins" PR — see .github/workflows/ci.yml > lint).
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["scripts/_ml_pipeline.py", "build", "dist", ".venv"]
+
+[tool.ruff.lint]
+# Pyflakes (F) + pycodestyle errors (E) + import order (I) + bugbear (B).
+select = ["E", "F", "I", "B"]
+ignore = [
+    "E501",  # long lines — many existing docstrings are intentionally long.
+    "B008",  # function default-arg call — pydantic-Settings uses this pattern.
+    "E741",  # ambiguous variable name — "l"/"L" in helpers is fine.
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests routinely shadow names + import lazily.
+"tests/*" = ["F401", "F811", "B011"]

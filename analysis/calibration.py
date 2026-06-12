@@ -321,7 +321,8 @@ def _load(path: Path) -> CalibrationArtifact | None:
         data = json.loads(path.read_text(encoding="utf-8"))
         return CalibrationArtifact.from_dict(data)
     except Exception as exc:
-        log.warning("calibration_load_failed", path=str(path), error=str(exc))
+        log.warning("calibration_load_failed", path=str(path), error=str(exc),
+                    exc_info=True)
         return None
 
 

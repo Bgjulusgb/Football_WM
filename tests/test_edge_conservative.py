@@ -4,6 +4,7 @@ from __future__ import annotations
 from wm2026.edge import (
     best_value_cons_pick,
     compute_edges,
+    devig,
     evaluate_asian_handicap,
     evaluate_line,
 )
@@ -149,3 +150,36 @@ def test_best_value_cons_pick_none_when_nothing_survives():
     ]
     assert best_value_cons_pick(rows) is None
     assert best_value_cons_pick([]) is None
+
+
+# ── Malformed-odds hardening (regression guard for the IndexError class) ──────
+def test_devig_returns_empty_on_all_invalid_odds():
+    """All-zero / negative input → ([], 0.0) — no IndexError downstream."""
+    assert devig([0.0, 0.0, 0.0]) == ([], 0.0)
+    assert devig([-1.0, 0.0, 1.0]) == ([], 0.0)
+    assert devig([]) == ([], 0.0)
+
+
+def test_devig_drops_invalid_entries_keeps_valid_ones():
+    """Partial input is allowed; callers must check len() before indexing."""
+    fair, overround = devig([2.0, 0.0, 3.0])
+    assert len(fair) == 2
+    assert overround > 0
+    assert abs(sum(fair) - 1.0) < 1e-9
+
+
+def test_compute_edges_survives_all_zero_odds():
+    """A typo like --odds "0/0/0" must not crash the edge table —
+    every 1X2 row falls through to model-only (decimal_odd=None, edge=None)."""
+    rows = compute_edges(
+        {"home_win": 0.55, "draw": 0.22, "away_win": 0.23,
+         "over_25": 0.50, "btts": 0.50},
+        odds_1x2=[0.0, 0.0, 0.0],
+        odds_ou25=[-1.0, 0.5],
+    )
+    one_x_two = [r for r in rows if r["market"] == "1X2"]
+    assert len(one_x_two) == 3
+    for r in one_x_two:
+        assert r["fair_p"] is None
+        assert r["decimal_odd"] is None
+        assert r["edge_pct"] is None

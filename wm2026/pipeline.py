@@ -61,7 +61,7 @@ async def _populate(ctx: FactorContext) -> dict[str, Any]:
     try:
         await orch.populate(ctx)
     except Exception as exc:  # pragma: no cover - defensive
-        log.warning("orchestrator_failed", error=str(exc))
+        log.warning("orchestrator_failed", error=str(exc), exc_info=True)
     finally:
         await orch.aclose()
     return dict(ctx.provenance)
@@ -298,7 +298,10 @@ async def run_prediction(
         A parsed match config (see ``wm2026.context.load_match_config`` /
         ``synth_config``).
     mode
-        ``"mock"`` (offline, default) or ``"live"`` (uses ``.env`` toggles).
+        ``"mock"`` (offline, deterministic — the Python-API default for tests
+        and reproducibility) or ``"live"`` (uses ``.env`` toggles for real
+        connectors). The ``wm2026 predict`` CLI defaults to ``"live"`` instead
+        — pass ``--mode mock`` to pin offline from the shell.
     bootstrap_n
         Override the bootstrap sample count (default: ``settings.bootstrap_n``).
     sentiment_payload
@@ -346,7 +349,7 @@ async def run_prediction(
             if mle is not None:
                 base_home_xg, base_away_xg = mle
         except Exception as exc:  # pragma: no cover - defensive
-            log.warning("mle_xg_failed", error=str(exc))
+            log.warning("mle_xg_failed", error=str(exc), exc_info=True)
     predictor = MatchPredictor(
         rho=getattr(settings, "dixon_coles_rho", 0.1),
         goal_model=settings.goal_model,

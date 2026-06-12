@@ -83,6 +83,15 @@ def devig(decimal_odds: list[float]) -> tuple[list[float], float]:
     ``overround`` (a.k.a. vig/juice) is ``sum(1/odd)`` and is > 1.0 for any
     book that makes money. Dividing the raw implied probabilities by it yields
     the vig-free estimate of the book's true probabilities.
+
+    Malformed-input contract: only entries with ``o > 1.0`` are valid decimal
+    odds and survive the filter. If every input is invalid (e.g. ``[0, 0, 0]``
+    from a typo or ``[-1, 0, 1]`` from a copy-paste error) the function returns
+    ``([], 0.0)`` so callers can detect "no usable odds" without an IndexError.
+    Partial input (one valid odd out of three for 1X2) returns fewer entries
+    than were given — callers that need positional alignment MUST check
+    ``len(fair)`` before indexing (every site in :func:`compute_edges` already
+    does so via ``len(fair_*) > i`` guards).
     """
     implied = [1.0 / o for o in decimal_odds if o and o > 1.0]
     overround = sum(implied)

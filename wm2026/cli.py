@@ -155,23 +155,35 @@ def _build_cfg(args: argparse.Namespace):
 
 # Per-source live/mock toggles (Phase 4 / Verbesserungsplan Phase-3-Offen-Punkt).
 # Lowercase source name ⇄ USE_MOCK_* env key, mirroring config.settings.
-_SOURCE_NAMES: tuple[str, ...] = (
-    "crawler", "openfootball", "thesportsdb", "openligadb", "wikidata",
-    "weather", "rss", "clubelo", "football_data", "fbref", "understat",
-    "fotmob", "sofascore", "transfermarkt",
-)
+# Discovered dynamically from ``Settings.model_fields`` so a new connector in
+# config/settings.py auto-syncs the CLI flags without a manual list update here.
+def _list_source_names() -> tuple[str, ...]:
+    """Connector names derived from ``Settings``'s ``use_mock_*`` fields.
+
+    Lazy import: ``config.settings`` is light (pydantic-settings only — no
+    numpy/scipy), so calling this from the CLI startup path is cheap, but the
+    import still sits inside the function so ``wm2026 --help`` or
+    ``wm2026 list`` never pulls it in.
+    """
+    from config.settings import Settings
+    return tuple(
+        name[len("use_mock_"):]
+        for name in Settings.model_fields
+        if name.startswith("use_mock_")
+    )
 
 
 def _parse_source_list(spec: str | None, flag: str) -> list[str]:
     """Validate a comma list of connector names → lowercase list (or exit)."""
     if not spec:
         return []
+    sources = _list_source_names()
     names = [t.strip().lower() for t in spec.split(",") if t.strip()]
-    unknown = sorted(set(names) - set(_SOURCE_NAMES))
+    unknown = sorted(set(names) - set(sources))
     if unknown:
         raise SystemExit(
             f"error: {flag}: unknown source(s) {', '.join(unknown)} — "
-            f"valid: {', '.join(_SOURCE_NAMES)}")
+            f"valid: {', '.join(sorted(sources))}")
     return names
 
 
@@ -190,12 +202,13 @@ def _seed_source_toggles(args: argparse.Namespace) -> None:
         print("[--live-sources given → switching --mode to live]", file=sys.stderr)
         args.mode = "live"
 
+    sources = _list_source_names()
     if args.mode == "mock":
-        for name in _SOURCE_NAMES:
+        for name in sources:
             os.environ.setdefault(f"USE_MOCK_{name.upper()}", "true")
     elif live_only:
         # ONLY the listed connectors go live; everything else is mock.
-        for name in _SOURCE_NAMES:
+        for name in sources:
             os.environ[f"USE_MOCK_{name.upper()}"] = (
                 "false" if name in live_only else "true")
     for name in mock_only:
@@ -451,6 +464,45 @@ def _cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_tune(args: argparse.Namespace) -> int:
+    """Phase 2.4 — Optuna RPS-tune of blend weights + Dixon-Coles ρ.
+
+    Thin wrapper around ``scripts/tune_models_offline.py`` so the same engine
+    that powers the ``tune-models`` skill is a first-class subcommand. Needs
+    the optional ``[tune]`` extra (Optuna) — clear error if missing.
+    """
+    _quiet_logs(args.verbose)
+    from scripts.tune_models_offline import main as tune_main
+    argv = [args.history]
+    if args.trials is not None:
+        argv += ["--trials", str(args.trials)]
+    return tune_main(argv)
+
+
+def _cmd_backtest(args: argparse.Namespace) -> int:
+    """Score the JSON reports under ``--reports`` against actual match outcomes.
+
+    Joins ``<reports>/*.json`` with a ground-truth CSV (``match_id``,
+    ``home_score``, ``away_score``) and reports Brier / RPS / LogLoss for 1X2
+    plus, when available, the hit-rate of ``best_value_cons`` and a naïve
+    half-Kelly ROI. Closes the loop the ``analyze-edge`` / p5 rule promises.
+    """
+    _quiet_logs(args.verbose)
+    from wm2026.backtest import run_backtest
+
+    report = run_backtest(
+        reports_dir=Path(args.reports),
+        truth_csv=Path(args.truth),
+        bankroll=args.bankroll,
+    )
+    if args.format == "json":
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        from wm2026.backtest import format_briefing
+        print(format_briefing(report))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wm2026",
@@ -496,6 +548,31 @@ def build_parser() -> argparse.ArgumentParser:
     p_sum.add_argument("--top", type=int, default=5,
                        help="cap the edge table at the top-N rows by p5 edge (default 5)")
     p_sum.set_defaults(func=_cmd_summary)
+
+    p_tune = sub.add_parser(
+        "tune",
+        help="Phase 2.4 — Optuna RPS-tune blend weights + Dixon-Coles ρ from a "
+             "history CSV (writes models_ml/artifacts/tuned_model_params.yaml)")
+    p_tune.add_argument("history",
+                        help="history CSV with columns home_xg, away_xg, home_score, away_score")
+    p_tune.add_argument("--trials", type=int, default=None,
+                        help="number of Optuna trials (script default: 200)")
+    p_tune.add_argument("--verbose", "-v", action="store_true")
+    p_tune.set_defaults(func=_cmd_tune)
+
+    p_bt = sub.add_parser(
+        "backtest",
+        help="score saved JSON reports against actual outcomes "
+             "(Brier / RPS / LogLoss + p5 hit-rate + naïve Kelly ROI)")
+    p_bt.add_argument("--reports", required=True,
+                      help="directory containing predict-output JSON reports")
+    p_bt.add_argument("--truth", required=True,
+                      help="ground-truth CSV: match_id, home_score, away_score")
+    p_bt.add_argument("--bankroll", type=float, default=1000.0,
+                      help="bankroll for the naïve Kelly ROI calculation (default 1000)")
+    p_bt.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    p_bt.add_argument("--verbose", "-v", action="store_true")
+    p_bt.set_defaults(func=_cmd_backtest)
 
     return parser
 
