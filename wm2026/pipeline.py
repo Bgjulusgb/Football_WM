@@ -382,12 +382,17 @@ async def run_prediction(
         matrix = blend_score_matrix(predictor.models, out.home_xg, out.away_xg)
         score_matrix = [[float(matrix[i][j]) for j in range(matrix.shape[1])]
                         for i in range(matrix.shape[0])]
+        corners_cfg = (cfg.get("corners") or {}) if isinstance(cfg, dict) else {}
+        cards_cfg = (cfg.get("cards") or {}) if isinstance(cfg, dict) else {}
         derived_markets = markets_mod.derive_all(
             matrix,
             p1x2=(out.home_win_prob, out.draw_prob, out.away_win_prob),
             ah_lines=ah_lines,
             lam_home=out.home_xg, lam_away=out.away_xg,
             models=predictor.models, ht_share=settings.ht_lambda_share,
+            corners_lam_home=corners_cfg.get("lambda_home"),
+            corners_lam_away=corners_cfg.get("lambda_away"),
+            cards_lam_total=cards_cfg.get("lambda_total"),
         )
     except Exception:  # pragma: no cover - defensive
         score_matrix = []

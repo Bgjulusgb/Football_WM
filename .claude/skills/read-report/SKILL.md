@@ -12,7 +12,7 @@ Das **JSON** ist die maschinenlesbare Wahrheit — alles andere ist Rendering.
 
 ```python
 {
-  "schema_version": "1.2",
+  "schema_version": "1.3",
   "match_id": "wm2026_groupa_kor_vs_cze",
   "match": { "home": "...", "away": "...", "stage": "...", "kickoff": "..." },
   "mode": "live|mock",

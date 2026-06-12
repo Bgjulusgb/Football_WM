@@ -193,6 +193,24 @@ def apply_overrides(ctx: FactorContext, overrides: dict[str, Any] | None) -> lis
         ctx.sentiment_payload = sentiment
         applied.append("sentiment")
 
+    # Count markets (corners / cards) — λ values from a stats connector or hand-
+    # researched. Stored on ctx.config so the pipeline picks them up without a
+    # dedicated FactorContext field (no schema migration needed).
+    corners = overrides.get("corners")
+    if isinstance(corners, dict) and corners.get("lambda_home") is not None \
+            and corners.get("lambda_away") is not None:
+        ctx.config["corners"] = {
+            "lambda_home": float(corners["lambda_home"]),
+            "lambda_away": float(corners["lambda_away"]),
+        }
+        _stamp("corners")
+        applied.append("corners")
+    cards = overrides.get("cards")
+    if isinstance(cards, dict) and cards.get("lambda_total") is not None:
+        ctx.config["cards"] = {"lambda_total": float(cards["lambda_total"])}
+        _stamp("cards")
+        applied.append("cards")
+
     return applied
 
 
@@ -217,6 +235,9 @@ def overrides_template(cfg: dict[str, Any]) -> dict[str, Any]:
                     "humidity_pct": None, "_source": None},
         "sentiment": {"sample_size": None, "home_sentiment": None,
                       "away_sentiment": None, "_source": None},
+        # Count markets — only emitted if you research / inject the λ values.
+        "corners": {"lambda_home": None, "lambda_away": None, "_source": None},
+        "cards":   {"lambda_total": None, "_source": None},
     }
 
 

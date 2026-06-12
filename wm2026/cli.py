@@ -391,6 +391,9 @@ def _cmd_tournament(args: argparse.Namespace) -> int:
                "title_prob": res.title_prob, "final_prob": res.final_prob,
                "advance_prob": res.advance_prob}
         text = json.dumps(out, indent=2, ensure_ascii=False)
+    elif args.format == "bracket":
+        from wm2026.tournament_viz import render_bracket
+        text = render_bracket(res, names)
     else:
         L = [f"# 🏆 WM 2026 — Turnier-Monte-Carlo",
              f"*{res.n_sims} Simulationen · {len(groups)} Gruppen · neutral (kein Heimvorteil)*", "",
@@ -524,7 +527,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_tour.add_argument("--seed", type=int, default=0, help="RNG seed (deterministic)")
     p_tour.add_argument("--groups", help="config root with group_* dirs (default config/matches)")
     p_tour.add_argument("--mode", choices=["mock", "live"], default="mock", help="(reads YAML; mock/live parity)")
-    p_tour.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    p_tour.add_argument("--format", choices=["markdown", "json", "bracket"], default="markdown",
+                        help="markdown = ranked table · json = raw probabilities · "
+                             "bracket = ranked pyramid (champion / final / R16)")
     p_tour.add_argument("--out", "-o", help="also write tournament.md/json here")
     p_tour.add_argument("--verbose", "-v", action="store_true")
     p_tour.set_defaults(func=_cmd_tournament)
