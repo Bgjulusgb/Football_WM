@@ -36,6 +36,14 @@ _PIPELINE_MODULES = (
     "analysis.calibration", "models_ml.poisson_goals",
     "factors.registry", "data_sources.orchestrator", "config.settings",
 )
+# Free-OSS migration — the three live API keys the project policy supports.
+# Doctor reports their presence but never the values; missing keys downgrade
+# their connector silently (project contract), so this is informational only.
+_API_KEYS = (
+    ("NVIDIA_API_KEY",        "nvidia_api_key",        "build.nvidia.com — LLM aspect sentiment"),
+    ("ODDS_API_KEY",          "odds_api_key",          "the-odds-api.com — live bookmaker odds"),
+    ("FOOTBALL_DATA_API_KEY", "football_data_api_key", "football-data.org — fixture cross-check"),
+)
 # Minimaler Schema-Vertrag — wenn eines dieser Felder fehlt, ist der Report
 # nicht "current" (Schema-Bump hat eine Stelle nicht erreicht).
 _SCHEMA_REQUIRED = (
@@ -162,6 +170,23 @@ def run(*, verbose: bool = False) -> int:
     print(f"\n✅ {pipe_total}/{pipe_total} pipeline modules import")
     print()
 
+    # Free-OSS migration — show which of the three live keys are configured.
+    # Connectors still fall back to mock when a key is missing, so this is
+    # informational; no key is a hard error.
+    from config.settings import settings as _s
+    print("## API keys (free / free-tier — Reddit & Twitter not needed)")
+    key_present = 0
+    for env_var, attr, note in _API_KEYS:
+        value = getattr(_s, attr, "") or ""
+        if value:
+            print(_row("✅", env_var, f"set — {note}"))
+            key_present += 1
+        else:
+            print(_row("⚠️", env_var, f"unset → connector stays mock — {note}"))
+    print(f"\n→ {key_present}/{len(_API_KEYS)} live keys configured "
+          f"(missing keys degrade gracefully)")
+    print()
+
     print("## Schema smoke (mock predict, bootstrap_n=32)")
     ok, msg, js = _smoke_predict(silence_stdout=False)
     if not ok or js is None:
@@ -211,6 +236,8 @@ def main(argv: list[str] | None = None) -> int:
         ok, msg, js = (True, "skipped", None)
         if core_missing == 0 and pipe_missing == 0:
             ok, msg, js = _smoke_predict(silence_stdout=True)
+        from config.settings import settings as _s
+        keys = {env: bool(getattr(_s, attr, "")) for env, attr, _ in _API_KEYS}
         status = {
             "core_missing": core_missing,
             "extras_missing": extra_missing,
@@ -218,6 +245,7 @@ def main(argv: list[str] | None = None) -> int:
             "smoke_ok": bool(ok),
             "smoke_msg": msg,
             "schema_version": (js or {}).get("schema_version"),
+            "api_keys_present": keys,
         }
         print(_json.dumps(status, indent=2, ensure_ascii=False))
         if core_missing:
