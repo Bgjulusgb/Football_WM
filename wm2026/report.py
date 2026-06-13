@@ -129,6 +129,10 @@ def build_json(result: dict[str, Any]) -> dict[str, Any]:
         "warnings": result.get("warnings", []),
         "claude_tasks": result.get("claude_tasks", []),
         "data_sources": result.get("provenance", {}),
+        # Aggregated provenance — how much of the data is genuinely live vs.
+        # mock fallback. Lets the user see at a glance whether a `mode: live`
+        # run is substantively live or mostly fail-soft-mocked.
+        "data_provenance_summary": result.get("provenance_summary", {}),
     }
 
 

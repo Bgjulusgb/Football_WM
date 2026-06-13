@@ -178,6 +178,33 @@ def _maybe_calibrate(
         }
 
 
+def _provenance_summary(provenance: dict[str, Any]) -> dict[str, Any]:
+    """Aggregate per-slice provenance modes into one summary dict.
+
+    Looks at every ctx.provenance entry the orchestrator filled in (history,
+    weather, lineup, odds_api, …) and returns counts plus the live-coverage
+    ratio. The report surfaces this so the user can see at a glance whether a
+    ``mode: live`` run is *substantively* live or mostly fail-soft-mocked.
+    """
+    modes: dict[str, int] = {}
+    for entry in (provenance or {}).values():
+        mode = entry.get("mode") if isinstance(entry, dict) else entry
+        if mode is None:
+            mode = "unknown"
+        modes[mode] = modes.get(mode, 0) + 1
+    total = sum(modes.values())
+    live_like = modes.get("live", 0) + modes.get("cache", 0) + modes.get("research", 0)
+    coverage = round(live_like / total, 3) if total else 0.0
+    return {
+        "modes": modes,
+        "total_slices": total,
+        "live_slices": live_like,
+        "mock_slices": modes.get("mock", 0),
+        "error_slices": modes.get("error", 0),
+        "live_coverage_pct": round(100.0 * coverage, 1),
+    }
+
+
 def _validate(
     out: Any, ensemble: EnsembleResult, signals: list, provenance: dict[str, Any]
 ) -> list[str]:
@@ -199,6 +226,16 @@ def _validate(
     non_mock = {"live", "cache", "research"} & modes
     if not non_mock:
         warnings.append("all data sources are mock — predictions are illustrative, not live")
+    else:
+        # Partial-live nuance: a "live" run with <40% real slices is honest but
+        # thin — surface that so the user doesn't read "mode: live" as "all real".
+        summary = _provenance_summary(provenance)
+        if summary["total_slices"] >= 5 and summary["live_coverage_pct"] < 40.0:
+            warnings.append(
+                f"partial-live: only {summary['live_slices']}/{summary['total_slices']} "
+                f"data slices ({summary['live_coverage_pct']}%) came back live — "
+                "the rest fell back to mock"
+            )
     if ensemble.confidence < 0.5:
         warnings.append(
             f"ensemble confidence {ensemble.confidence:.2f} < 0.50 — treat the pick as low-conviction"
@@ -512,6 +549,7 @@ async def run_prediction(
         "derived_markets": derived_markets,
         "calibration": calibration,
         "provenance": provenance,
+        "provenance_summary": _provenance_summary(provenance),
         "edges": edge_rows,
         "best_value": best_value,
         "best_value_cons": best_value_cons,

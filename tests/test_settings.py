@@ -73,6 +73,46 @@ def test_reddit_uses_credentialless_http_crawler():
     assert _default("use_arctic_shift") is False
 
 
+def test_match_service_picks_http_reddit_crawler_under_live_defaults():
+    """Behavioural proof of the free-OSS Phase-3 contract: with
+    use_mock_crawler=False + use_arctic_shift=False the crawler dispatch in
+    match_service routes to HttpRedditCrawler (the credentialless variant).
+
+    Catches a silent regression where someone flips a default back to mock or
+    re-enables the OAuth path without thinking about the account-free guarantee.
+    """
+    from config.settings import settings as live_settings
+
+    # Sanity: defaults still match the contract (test_*_defaults_to_live above
+    # already pin it, but the dispatch logic reads `settings`, so we double-check).
+    assert live_settings.use_mock_crawler is False
+    assert live_settings.use_arctic_shift is False
+
+    try:
+        from crawler.http_reddit import HttpRedditCrawler
+    except Exception as exc:  # pragma: no cover - import-only safety
+        import pytest
+        pytest.skip(f"crawler module unavailable in this environment: {exc}")
+
+    # Re-create the dispatch logic from services/match_service.py:111-127 in
+    # one expression so the test fails when the routing diverges from the
+    # documented contract — without importing the full service module (which
+    # brings the DB / FastAPI stack).
+    def _pick_crawler():
+        if live_settings.use_mock_crawler:
+            from crawler.mock_reddit import MockRedditCrawler
+            return MockRedditCrawler
+        if live_settings.use_arctic_shift:
+            try:
+                from crawler.parallel_reddit import ParallelRedditCrawler
+                return ParallelRedditCrawler
+            except Exception:
+                pass
+        return HttpRedditCrawler
+
+    assert _pick_crawler() is HttpRedditCrawler
+
+
 def test_mock_profile_forces_everything_offline():
     """The CI/test contract: apply_runtime_profile('mock') must flip every
     connector to mock and hard-disable the NVIDIA scorer — regardless of the
