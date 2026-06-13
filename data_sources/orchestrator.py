@@ -234,9 +234,14 @@ class DataSourceOrchestrator:
         ctx.travel_home = travel_home
         ctx.travel_away = travel_away
 
-        # Phase 4 — store live bookmaker odds so the pipeline can use them as
-        # the default for the edge table when the CLI didn't pass --odds*.
-        if odds_res.ok and isinstance(odds_res.data, dict):
+        # Phase 4 — store bookmaker odds for the edge table, but ONLY when they
+        # came from a genuine live fetch. The mock fallback returns hash-seeded
+        # odds that are uncorrelated with the model, so adopting them would
+        # manufacture nonsensical "edges" (e.g. a 50%-model-prob Home line shown
+        # at 3.68 → fake +80% edge). The project rule is no fake data driving
+        # signals: in mock / no-key / fetch-failed cases the edge table stays
+        # empty unless the user passes real researched odds via --odds*.
+        if odds_res.mode == "live" and isinstance(odds_res.data, dict):
             ctx.live_odds = odds_res.data
         ctx.provenance["odds_api"] = _prov(odds_res)
 

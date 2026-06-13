@@ -18,7 +18,7 @@ deterministic mock so the pipeline edge table never disappears entirely.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from statistics import median
 from typing import Any
 

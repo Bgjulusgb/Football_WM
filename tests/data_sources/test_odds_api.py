@@ -162,19 +162,43 @@ def test_parse_event_list_returns_none_when_no_team_match():
 
 
 # ── pipeline integration ──────────────────────────────────────────────────────
-def test_pipeline_uses_live_odds_when_cli_omits_them(monkeypatch):
-    """Phase-4 wiring: orchestrator → ctx.live_odds → pipeline picks them up."""
+def test_pipeline_does_not_adopt_mock_odds(monkeypatch):
+    """No-fake-data rule: mock-sourced odds must NOT populate the edge table —
+    otherwise a hash-seeded line manufactures nonsense edges. With mock odds and
+    no --odds, the 1X2 rows stay model-only (no decimal_odd)."""
     import asyncio as _asyncio
 
+    from config.settings import settings
     from wm2026.context import synth_config
     from wm2026.pipeline import run_prediction
 
+    monkeypatch.setattr(settings, "use_mock_odds_api", True)
     cfg = synth_config(home_team="Germany", away_team="Brazil")
-    result = _asyncio.run(run_prediction(cfg, mode="mock", bootstrap_n=32))
-    # The edge table should contain rows with real decimal_odd values from
-    # the mock connector — not just model-only rows.
-    has_priced_rows = any(
-        r.get("decimal_odd") is not None and r["market"] == "1X2"
-        for r in result["edges"]
-    )
-    assert has_priced_rows, "live odds from connector should populate the edge table"
+    result = _asyncio.run(run_prediction(cfg, mode="mock", bootstrap_n=16))
+    priced = [r for r in result["edges"]
+              if r["market"] == "1X2" and r.get("decimal_odd") is not None]
+    assert priced == [], "mock odds must not drive the edge table"
+
+
+def test_pipeline_adopts_live_odds_from_connector(monkeypatch):
+    """A genuine live FetchResult from the connector IS adopted as the edge
+    default (so a configured key needs no --odds)."""
+    import asyncio as _asyncio
+
+    from data_sources.base import FetchResult
+    from data_sources.odds_api import OddsApiConnector
+    from wm2026.context import synth_config
+    from wm2026.pipeline import run_prediction
+
+    async def _live(self, *a, **kw):
+        return FetchResult(
+            {"1x2": [2.10, 3.40, 3.20], "ou_2_5": [1.85, 1.95], "btts": [1.80, 2.00]},
+            "live", None, "odds_api",
+        )
+
+    monkeypatch.setattr(OddsApiConnector, "get_odds", _live)
+    cfg = synth_config(home_team="Germany", away_team="Brazil")
+    result = _asyncio.run(run_prediction(cfg, mode="mock", bootstrap_n=16))
+    priced = [r for r in result["edges"]
+              if r["market"] == "1X2" and r.get("decimal_odd") is not None]
+    assert len(priced) == 3, "live odds should populate the edge table"
